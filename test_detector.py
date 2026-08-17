@@ -1,8 +1,11 @@
 # test_detector.py
+
 from engine.detector import PlagiarismDetector
 
-# Standard CP Template used by all 4 students
-CP_TEMPLATE = """
+detector = PlagiarismDetector(k=6, w=4, boilerplate_threshold=0.50)
+
+# Sample submissions
+alice_code = """
 #include <iostream>
 #include <vector>
 using namespace std;
@@ -11,10 +14,7 @@ void fast_io() {
     ios_base::sync_with_stdio(false);
     cin.tie(NULL);
 }
-"""
 
-# Alice: Original DP Solution
-alice_code = CP_TEMPLATE + """
 int computeFib(int n) {
     if (n <= 1) return n;
     vector<int> dp(n + 1);
@@ -28,15 +28,23 @@ int computeFib(int n) {
 
 int main() {
     fast_io();
-    int n;
-    cin >> n;
-    cout << computeFib(n) << endl;
+    int val;
+    cin >> val;
+    cout << computeFib(val) << endl;
     return 0;
 }
 """
 
-# Bob: Blatant copy of Alice, renamed vars and disguised formatting
-bob_code = CP_TEMPLATE + """
+bob_code = """
+#include <iostream>
+#include <vector>
+using namespace std;
+
+void fast_io() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+}
+
 int solve(int count) {
     if (count <= 1) return count;
     vector<int> memo(count + 1);
@@ -50,15 +58,23 @@ int solve(int count) {
 
 int main() {
     fast_io();
-    int val;
-    cin >> val;
-    cout << solve(val) << endl;
+    int target;
+    cin >> target;
+    cout << solve(target) << endl;
     return 0;
 }
 """
 
-# Charlie: Honest student, completely different logic (Iterative Space-Optimized)
-charlie_code = CP_TEMPLATE + """
+charlie_code = """
+#include <iostream>
+#include <vector>
+using namespace std;
+
+void fast_io() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+}
+
 int fibonacci(int num) {
     int prev2 = 0, prev1 = 1;
     for (int step = 2; step <= num; step++) {
@@ -78,47 +94,22 @@ int main() {
 }
 """
 
-# David: Solved a different graph problem
-david_code = CP_TEMPLATE + """
-void bfs(int src, vector<vector<int>>& adj) {
-    vector<bool> visited(adj.size(), false);
-    vector<int> q;
-    visited[src] = true;
-    q.push_back(src);
-    int head = 0;
-    while (head < q.size()) {
-        int u = q[head++];
-        for (int v : adj[u]) {
-            if (!visited[v]) {
-                visited[v] = true;
-                q.push_back(v);
-            }
-        }
-    }
-}
-
-int main() {
-    fast_io();
-    return 0;
-}
-"""
-
 contest_submissions = {
     "alice.cpp": alice_code,
     "bob.cpp": bob_code,
     "charlie.cpp": charlie_code,
-    "david.cpp": david_code,
 }
 
-# Run detector
-detector = PlagiarismDetector()
-results, boilerplate = detector.analyze_submissions(contest_submissions)
+# Unpack all 3 return values
+results, boilerplate, boilerplate_spans = detector.analyze_submissions(contest_submissions)
 
-print(f"Learned & Filtered Boilerplate Hashes: {len(boilerplate)}")
-print("\n" + "=" * 60)
-print(f"{'Pair':<25} | {'Similarity Score':<18} | {'Shared Hashes'}")
-print("=" * 60)
+print(f"Total Shared Boilerplate Hashes Auto-Purged: {len(boilerplate)}")
+print("\n--- Plagiarism Similarity Leaderboard ---")
+for r in results:
+    print(f"[{r.similarity_score}%] {r.file_a} vs {r.file_b} (Shared Hashes: {r.shared_fingerprints_count})")
+    print(f"   Matched Spans A: {len(r.matched_lines_a)} segments")
+    print(f"   Matched Spans B: {len(r.matched_lines_b)} segments")
 
-for res in results:
-    pair_label = f"{res.file_a} vs {res.file_b}"
-    print(f"{pair_label:<25} | {res.similarity_score:>6.2f}%            | {res.shared_fingerprints_count}")
+print("\n--- Boilerplate Line Spans Detected ---")
+for fname, spans in boilerplate_spans.items():
+    print(f"   {fname}: {len(spans)} boilerplate line markers")
