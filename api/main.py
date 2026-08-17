@@ -9,16 +9,24 @@ from pydantic import BaseModel
 
 from engine.detector import PlagiarismDetector
 from engine.forensics import LLMForensicEngine
+from engine.models import (
+    AssessmentSummaryResponse,
+    CreateAssessmentRequest,
+    CreateQuestionRequest,
+    QuestionSummaryResponse,
+)
+from engine.repository import AssessmentRepository
 
 app = FastAPI(
-    title="CP Plagiarism Detection API",
-    description="AST-based code plagiarism detection with dynamic template auto-learning & LLM forensics",
-    version="1.0.0",
+    title="Code Assessment Integrity Platform API",
+    description="AST-based code assessment integrity & LLM forensic engine",
+    version="2.0.0",
 )
 
-# Global engine instances
+# Global engine and data repository instances
 detector_engine = PlagiarismDetector()
 forensic_engine = LLMForensicEngine()
+repo = AssessmentRepository()
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,7 +64,7 @@ class AnalysisResponse(BaseModel):
     comparisons: List[ComparisonResultModel]
     files_content: Dict[str, str]
     file_boilerplate_spans: Dict[str, List[MatchSpanModel]]
-    forensics: Dict[str, ForensicReportModel]  # filename -> forensic scan report
+    forensics: Dict[str, ForensicReportModel]
 
 
 class TemplateStatsResponse(BaseModel):
@@ -66,9 +74,11 @@ class TemplateStatsResponse(BaseModel):
     minimum_file_threshold: int
 
 
+# --- System & Baseline Routes ---
+
 @app.get("/")
 def health_check():
-    return {"status": "online", "service": "CP Plagiarism Detection & LLM Forensic Engine"}
+    return {"status": "online", "service": "Code Assessment Integrity Platform"}
 
 
 @app.get("/api/template-stats", response_model=TemplateStatsResponse)
@@ -89,11 +99,81 @@ def get_template_stats():
     )
 
 
+# --- Assessment Management Routes (New in Phase 1) ---
+
+@app.post("/api/assessments", response_model=AssessmentSummaryResponse)
+def create_assessment(req: CreateAssessmentRequest):
+    asm = repo.create_assessment(title=req.title, description=req.description or "")
+    return AssessmentSummaryResponse(
+        assessment_id=asm.assessment_id,
+        title=asm.title,
+        description=asm.description,
+        created_at=asm.created_at.isoformat(),
+        question_count=0,
+        student_count=0,
+        total_submissions=0,
+    )
+
+
+@app.get("/api/assessments", response_model=List[AssessmentSummaryResponse])
+def list_assessments():
+    assessments = repo.list_assessments()
+    summaries = []
+    for asm in assessments:
+        total_subs = sum(len(q.submissions) for q in asm.questions.values())
+        summaries.append(
+            AssessmentSummaryResponse(
+                assessment_id=asm.assessment_id,
+                title=asm.title,
+                description=asm.description,
+                created_at=asm.created_at.isoformat(),
+                question_count=len(asm.questions),
+                student_count=len(asm.students),
+                total_submissions=total_subs,
+            )
+        )
+    return summaries
+
+
+@app.post("/api/assessments/{assessment_id}/questions", response_model=QuestionSummaryResponse)
+def create_question(assessment_id: str, req: CreateQuestionRequest):
+    question = repo.add_question(assessment_id=assessment_id, title=req.title, description=req.description or "")
+    if not question:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    return QuestionSummaryResponse(
+        question_id=question.question_id,
+        assessment_id=question.assessment_id,
+        title=question.title,
+        description=question.description,
+        submission_count=0,
+        is_analyzed=False,
+    )
+
+
+@app.get("/api/assessments/{assessment_id}/questions", response_model=List[QuestionSummaryResponse])
+def list_questions(assessment_id: str):
+    asm = repo.get_assessment(assessment_id)
+    if not asm:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    
+    return [
+        QuestionSummaryResponse(
+            question_id=q.question_id,
+            assessment_id=q.assessment_id,
+            title=q.title,
+            description=q.description,
+            submission_count=len(q.submissions),
+            is_analyzed=q.last_analyzed_at is not None,
+        )
+        for q in asm.questions.values()
+    ]
+
+
+# --- Legacy Batch Analysis Route (Maintained for Backward Compatibility) ---
+
 @app.post("/api/check-plagiarism", response_model=AnalysisResponse)
 @app.post("/api/analyze", response_model=AnalysisResponse)
-async def check_plagiarism(
-    files: List[UploadFile] = File(...),
-):
+async def check_plagiarism(files: List[UploadFile] = File(...)):
     submissions: Dict[str, str] = {}
 
     for uploaded_file in files:
@@ -125,10 +205,10 @@ async def check_plagiarism(
             detail="Please upload at least 2 C++ files to perform pairwise comparison.",
         )
 
-    # 1. Run Structural Plagiarism Detector
+    # 1. Structural Plagiarism Detector
     results, boilerplate, boilerplate_spans = detector_engine.analyze_submissions(submissions)
 
-    # 2. Run LLM Forensic Engine on every submission
+    # 2. LLM Forensic Engine
     forensics_data: Dict[str, ForensicReportModel] = {}
     for fname, code in submissions.items():
         report = forensic_engine.scan(code)
