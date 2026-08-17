@@ -12,18 +12,22 @@ from engine.forensics import LLMForensicEngine
 from engine.models import (
     AssessmentSummaryResponse,
     CreateAssessmentRequest,
+    CreateProblemRequest,
     CreateQuestionRequest,
+    ProblemDetailResponse,
+    ProblemSummaryResponse,
     QuestionSummaryResponse,
+    TestCase,
+    TestCaseSchema,
 )
 from engine.repository import AssessmentRepository
 
 app = FastAPI(
-    title="Code Assessment Integrity Platform API",
-    description="AST-based code assessment integrity & LLM forensic engine",
-    version="2.0.0",
+    title="Code Assessment & Integrity Platform API",
+    description="Competitive coding platform with integrated AST plagiarism detector & LLM forensic engine",
+    version="2.1.0",
 )
 
-# Global engine and data repository instances
 detector_engine = PlagiarismDetector()
 forensic_engine = LLMForensicEngine()
 repo = AssessmentRepository()
@@ -37,7 +41,8 @@ app.add_middleware(
 )
 
 
-# --- Response Schemas ---
+# --- Response Models for Legacy & Shared Endpoints ---
+
 class MatchSpanModel(BaseModel):
     start_line: int
     end_line: int
@@ -74,11 +79,15 @@ class TemplateStatsResponse(BaseModel):
     minimum_file_threshold: int
 
 
-# --- System & Baseline Routes ---
+# --- Root & System Health ---
 
 @app.get("/")
 def health_check():
-    return {"status": "online", "service": "Code Assessment Integrity Platform"}
+    return {
+        "status": "online",
+        "service": "Code Assessment & Integrity Platform",
+        "version": "2.1.0"
+    }
 
 
 @app.get("/api/template-stats", response_model=TemplateStatsResponse)
@@ -99,7 +108,107 @@ def get_template_stats():
     )
 
 
-# --- Assessment Management Routes (New in Phase 1) ---
+# --- Problem Platform Endpoints (New) ---
+
+@app.get("/api/problems", response_model=List[ProblemSummaryResponse])
+def list_problems():
+    problems = repo.list_problems()
+    return [
+        ProblemSummaryResponse(
+            problem_id=p.problem_id,
+            title=p.title,
+            slug=p.slug,
+            difficulty=p.difficulty,
+            submission_count=len(p.submissions),
+        )
+        for p in problems
+    ]
+
+
+@app.get("/api/problems/{problem_id_or_slug}", response_model=ProblemDetailResponse)
+def get_problem(problem_id_or_slug: str):
+    p = repo.get_problem(problem_id_or_slug)
+    if not p:
+        raise HTTPException(status_code=404, detail="Problem not found")
+
+    sample_tests = [
+        TestCaseSchema(
+            input_data=t.input_data,
+            expected_output=t.expected_output,
+            is_sample=t.is_sample,
+            explanation=t.explanation,
+        )
+        for t in p.test_cases
+        if t.is_sample
+    ]
+
+    return ProblemDetailResponse(
+        problem_id=p.problem_id,
+        title=p.title,
+        slug=p.slug,
+        description=p.description,
+        difficulty=p.difficulty,
+        time_limit_sec=p.time_limit_sec,
+        memory_limit_mb=p.memory_limit_mb,
+        starter_code=p.starter_code,
+        constraints=p.constraints,
+        examples=p.examples,
+        sample_test_cases=sample_tests,
+        submission_count=len(p.submissions),
+    )
+
+
+@app.post("/api/problems", response_model=ProblemDetailResponse)
+def create_problem(req: CreateProblemRequest):
+    test_cases = [
+        TestCase(
+            input_data=tc.input_data,
+            expected_output=tc.expected_output,
+            is_sample=tc.is_sample,
+            is_hidden=not tc.is_sample,
+            explanation=tc.explanation,
+        )
+        for tc in (req.test_cases or [])
+    ]
+
+    problem = repo.create_problem(
+        title=req.title,
+        description=req.description,
+        difficulty=req.difficulty or "Medium",
+        starter_code=req.starter_code or "",
+        constraints=req.constraints or [],
+        examples=req.examples or [],
+        test_cases=test_cases,
+    )
+
+    sample_tests = [
+        TestCaseSchema(
+            input_data=t.input_data,
+            expected_output=t.expected_output,
+            is_sample=t.is_sample,
+            explanation=t.explanation,
+        )
+        for t in problem.test_cases
+        if t.is_sample
+    ]
+
+    return ProblemDetailResponse(
+        problem_id=problem.problem_id,
+        title=problem.title,
+        slug=problem.slug,
+        description=problem.description,
+        difficulty=problem.difficulty,
+        time_limit_sec=problem.time_limit_sec,
+        memory_limit_mb=problem.memory_limit_mb,
+        starter_code=problem.starter_code,
+        constraints=problem.constraints,
+        examples=problem.examples,
+        sample_test_cases=sample_tests,
+        submission_count=0,
+    )
+
+
+# --- Assessment Endpoints (Preserved) ---
 
 @app.post("/api/assessments", response_model=AssessmentSummaryResponse)
 def create_assessment(req: CreateAssessmentRequest):
@@ -169,7 +278,7 @@ def list_questions(assessment_id: str):
     ]
 
 
-# --- Legacy Batch Analysis Route (Maintained for Backward Compatibility) ---
+# --- Plagiarism & Forensics Endpoint (Preserved) ---
 
 @app.post("/api/check-plagiarism", response_model=AnalysisResponse)
 @app.post("/api/analyze", response_model=AnalysisResponse)
@@ -205,10 +314,8 @@ async def check_plagiarism(files: List[UploadFile] = File(...)):
             detail="Please upload at least 2 C++ files to perform pairwise comparison.",
         )
 
-    # 1. Structural Plagiarism Detector
     results, boilerplate, boilerplate_spans = detector_engine.analyze_submissions(submissions)
 
-    # 2. LLM Forensic Engine
     forensics_data: Dict[str, ForensicReportModel] = {}
     for fname, code in submissions.items():
         report = forensic_engine.scan(code)

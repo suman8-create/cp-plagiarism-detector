@@ -1,18 +1,166 @@
 # engine/repository.py
 
+import re
 import uuid
 from typing import Dict, List, Optional
-from engine.models import Assessment, Question, Student, Submission
+from engine.models import (
+    Assessment,
+    Problem,
+    Question,
+    Student,
+    Submission,
+    TestCase,
+)
 
 
 class AssessmentRepository:
     """
-    In-memory data store for assessments, questions, students, and submissions.
-    Designed with repository-pattern interfaces so it can easily swap to SQLite/Postgres.
+    Unified in-memory data store for Problems, Contests/Assessments,
+    Submissions, and Test Cases.
     """
 
     def __init__(self):
         self._assessments: Dict[str, Assessment] = {}
+        self._problems: Dict[str, Problem] = {}
+        self._seed_default_problems()
+
+    def _generate_slug(self, title: str) -> str:
+        slug = re.sub(r"[^a-zA-Z0-9\s-]", "", title).strip().lower()
+        return re.sub(r"[\s-]+", "-", slug)
+
+    def _seed_default_problems(self):
+        """Seeds initial competitive programming problems."""
+        # Problem 1: Two Sum
+        two_sum_code = """#include <iostream>
+#include <vector>
+#include <unordered_map>
+using namespace std;
+
+vector<int> twoSum(const vector<int>& nums, int target) {
+    unordered_map<int, int> seen;
+    for (int i = 0; i < nums.size(); ++i) {
+        int complement = target - nums[i];
+        if (seen.count(complement)) {
+            return {seen[complement], i};
+        }
+        seen[nums[i]] = i;
+    }
+    return {};
+}
+
+int main() {
+    int n, target;
+    if (!(cin >> n >> target)) return 0;
+    vector<int> nums(n);
+    for (int i = 0; i < n; ++i) cin >> nums[i];
+    
+    vector<int> res = twoSum(nums, target);
+    if (!res.empty()) {
+        cout << res[0] << " " << res[1] << endl;
+    }
+    return 0;
+}
+"""
+        self.create_problem(
+            title="Two Sum",
+            description="Given an array of integers `nums` and an integer `target`, return indices of the two numbers such that they add up to `target`.\n\nYou may assume that each input would have exactly one solution, and you may not use the same element twice.",
+            difficulty="Easy",
+            starter_code=two_sum_code,
+            constraints=["2 <= nums.length <= 10^4", "-10^9 <= nums[i] <= 10^9", "Exactly one valid answer exists."],
+            examples=[
+                {"input": "4 9\n2 7 11 15", "output": "0 1", "explanation": "nums[0] + nums[1] == 9, so return 0 1."}
+            ],
+            test_cases=[
+                TestCase(input_data="4 9\n2 7 11 15", expected_output="0 1", is_sample=True, is_hidden=False),
+                TestCase(input_data="3 6\n3 2 4", expected_output="1 2", is_sample=False, is_hidden=True),
+                TestCase(input_data="2 6\n3 3", expected_output="0 1", is_sample=False, is_hidden=True),
+            ],
+        )
+
+        # Problem 2: Fibonacci DP
+        fib_code = """#include <iostream>
+#include <vector>
+using namespace std;
+
+int fibonacci(int n) {
+    if (n <= 0) return 0;
+    if (n == 1) return 1;
+    vector<int> dp(n + 1);
+    dp[0] = 0;
+    dp[1] = 1;
+    for (int i = 2; i <= n; ++i) {
+        dp[i] = dp[i - 1] + dp[i - 2];
+    }
+    return dp[n];
+}
+
+int main() {
+    int n;
+    if (cin >> n) {
+        cout << fibonacci(n) << endl;
+    }
+    return 0;
+}
+"""
+        self.create_problem(
+            title="Fibonacci Number",
+            description="The Fibonacci numbers, commonly denoted `F(n)`, form a sequence such that each number is the sum of the two preceding ones, starting from 0 and 1.\n\nGiven `n`, calculate `F(n)`.",
+            difficulty="Easy",
+            starter_code=fib_code,
+            constraints=["0 <= n <= 30"],
+            examples=[
+                {"input": "2", "output": "1", "explanation": "F(2) = F(1) + F(0) = 1 + 0 = 1."},
+                {"input": "4", "output": "3", "explanation": "F(4) = F(3) + F(2) = 2 + 1 = 3."}
+            ],
+            test_cases=[
+                TestCase(input_data="2", expected_output="1", is_sample=True, is_hidden=False),
+                TestCase(input_data="4", expected_output="3", is_sample=True, is_hidden=False),
+                TestCase(input_data="10", expected_output="55", is_sample=False, is_hidden=True),
+                TestCase(input_data="0", expected_output="0", is_sample=False, is_hidden=True),
+            ],
+        )
+
+    # --- Problem Operations ---
+
+    def create_problem(
+        self,
+        title: str,
+        description: str,
+        difficulty: str = "Medium",
+        starter_code: str = "",
+        constraints: Optional[List[str]] = None,
+        examples: Optional[List[Dict[str, str]]] = None,
+        test_cases: Optional[List[TestCase]] = None,
+    ) -> Problem:
+        problem_id = f"prob_{uuid.uuid4().hex[:8]}"
+        slug = self._generate_slug(title)
+        
+        problem = Problem(
+            problem_id=problem_id,
+            title=title,
+            slug=slug,
+            description=description,
+            difficulty=difficulty,
+            starter_code=starter_code,
+            constraints=constraints or [],
+            examples=examples or [],
+            test_cases=test_cases or [],
+        )
+        self._problems[problem_id] = problem
+        return problem
+
+    def get_problem(self, problem_id_or_slug: str) -> Optional[Problem]:
+        if problem_id_or_slug in self._problems:
+            return self._problems[problem_id_or_slug]
+        for prob in self._problems.values():
+            if prob.slug == problem_id_or_slug:
+                return prob
+        return None
+
+    def list_problems(self) -> List[Problem]:
+        return list(self._problems.values())
+
+    # --- Assessment Operations (Maintained from Phase 1) ---
 
     def create_assessment(self, title: str, description: str = "") -> Assessment:
         assessment_id = f"asm_{uuid.uuid4().hex[:8]}"
@@ -53,37 +201,39 @@ class AssessmentRepository:
 
     def add_submission(
         self,
-        assessment_id: str,
-        question_id: str,
+        assessment_id: Optional[str],
+        question_id: Optional[str],
         student_id: str,
         student_name: str,
         source_file: str,
         source_code: str,
+        problem_id: Optional[str] = None,
     ) -> Optional[Submission]:
-        assessment = self.get_assessment(assessment_id)
-        if not assessment:
-            return None
-
-        question = assessment.questions.get(question_id)
-        if not question:
-            return None
-
         submission_id = f"sub_{uuid.uuid4().hex[:8]}"
+        target_problem_id = problem_id or question_id or "default_problem"
+
         submission = Submission(
             submission_id=submission_id,
-            assessment_id=assessment_id,
-            question_id=question_id,
-            student_id=student_id,
-            student_name=student_name,
+            problem_id=target_problem_id,
+            user_id=student_id,
+            user_name=student_name,
             source_file=source_file,
             source_code=source_code,
+            assessment_id=assessment_id,
+            question_id=question_id,
         )
 
-        question.submissions[submission_id] = submission
+        # Attach to Problem if it exists
+        if target_problem_id in self._problems:
+            self._problems[target_problem_id].submissions[submission_id] = submission
 
-        # Track or update student entity in assessment
-        if student_id not in assessment.students:
-            assessment.students[student_id] = Student(student_id=student_id, name=student_name)
-        assessment.students[student_id].submission_ids.append(submission_id)
+        # Attach to Assessment if context provided
+        if assessment_id:
+            assessment = self.get_assessment(assessment_id)
+            if assessment and question_id and question_id in assessment.questions:
+                assessment.questions[question_id].submissions[submission_id] = submission
+                if student_id not in assessment.students:
+                    assessment.students[student_id] = Student(student_id=student_id, name=student_name)
+                assessment.students[student_id].submission_ids.append(submission_id)
 
         return submission
