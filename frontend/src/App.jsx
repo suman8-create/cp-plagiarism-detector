@@ -13,13 +13,33 @@ import {
   ChevronDown, 
   ChevronUp,
   Trophy,
-  Code2
+  User,
+  Check
 } from 'lucide-react';
 import DiffViewer from './components/DiffViewer';
 import ProblemWorkspace from './components/ProblemWorkspace';
 import ContestHub from './components/ContestHub';
 
+const DEMO_USERS = [
+  { user_id: 'std_suman_01', user_name: 'Suman', handle: '@suman' },
+  { user_id: 'std_alex_101', user_name: 'Alex Developer', handle: '@alex' },
+  { user_id: 'std_priya_202', user_name: 'Priya Sharma', handle: '@priya' },
+  { user_id: 'std_sherjil_303', user_name: 'Bob', handle: '@bob' },
+];
+
 export default function App() {
+  // User Profile State
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem('cp_active_user');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) {}
+    }
+    return DEMO_USERS[0];
+  });
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customHandle, setCustomHandle] = useState('');
+
   // Navigation State: 'contests' | 'problems' | 'problem_workspace' | 'quick_scan'
   const [currentView, setCurrentView] = useState('contests');
   
@@ -37,6 +57,10 @@ export default function App() {
   const [error, setError] = useState('');
   const [activeComparison, setActiveComparison] = useState(null);
   const [expandedForensics, setExpandedForensics] = useState({});
+
+  useEffect(() => {
+    localStorage.setItem('cp_active_user', JSON.stringify(currentUser));
+  }, [currentUser]);
 
   const fetchProblems = async () => {
     try {
@@ -56,6 +80,26 @@ export default function App() {
   useEffect(() => {
     fetchProblems();
   }, []);
+
+  const handleSwitchUser = (user) => {
+    setCurrentUser(user);
+    setShowProfileModal(false);
+  };
+
+  const handleCreateCustomProfile = (e) => {
+    e.preventDefault();
+    if (!customName.trim()) return;
+    const cleanHandle = customHandle.trim() ? (customHandle.startsWith('@') ? customHandle : `@${customHandle}`) : `@${customName.toLowerCase().replace(/\s+/g, '_')}`;
+    const newUser = {
+      user_id: `usr_${Math.random().toString(36).substring(2, 9)}`,
+      user_name: customName.trim(),
+      handle: cleanHandle,
+    };
+    setCurrentUser(newUser);
+    setCustomName('');
+    setCustomHandle('');
+    setShowProfileModal(false);
+  };
 
   const handleQuickUpload = async () => {
     if (selectedFiles.length === 0) {
@@ -123,51 +167,72 @@ export default function App() {
           <div className="space-y-1">
             <div className="inline-flex items-center space-x-2 px-2.5 py-0.5 bg-indigo-500/10 border border-indigo-500/30 rounded-full text-indigo-400 text-xs font-medium">
               <Sparkles className="w-3 h-3" />
-              <span>Competitive Programming Platform</span>
+              <span>Competitive Programming Engine</span>
             </div>
             <h1 className="text-xl md:text-2xl font-extrabold text-white">
-              Code Integrity & Contest Engine
+              Code Integrity & Contest Arena
             </h1>
           </div>
 
-          {/* Navigation View Switcher */}
-          <div className="flex items-center space-x-1.5 bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs">
+          <div className="flex items-center space-x-3">
+            {/* User Profile Pill */}
             <button
-              onClick={() => { setCurrentView('contests'); setSelectedProblemSlug(null); setActiveContestId(null); }}
-              className={`px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                currentView === 'contests'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              onClick={() => setShowProfileModal(true)}
+              className="flex items-center space-x-2 bg-slate-900 border border-slate-800 hover:border-indigo-500/60 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-sm group"
             >
-              Contests
+              <div className="w-6 h-6 rounded-lg bg-indigo-600/20 border border-indigo-500/40 text-indigo-400 flex items-center justify-center font-bold text-xs">
+                {currentUser.user_name.charAt(0)}
+              </div>
+              <div className="text-left">
+                <span className="text-xs font-semibold text-slate-200 block leading-tight group-hover:text-indigo-300">
+                  {currentUser.user_name}
+                </span>
+                <span className="text-[10px] font-mono text-slate-500 block leading-tight">
+                  {currentUser.handle}
+                </span>
+              </div>
             </button>
-            <button
-              onClick={() => { setCurrentView('problems'); setSelectedProblemSlug(null); setActiveContestId(null); }}
-              className={`px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                currentView === 'problems' || currentView === 'problem_workspace'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Problems
-            </button>
-            <button
-              onClick={() => setCurrentView('quick_scan')}
-              className={`px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                currentView === 'quick_scan'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Ad-Hoc Scanner
-            </button>
+
+            {/* Navigation View Switcher */}
+            <div className="flex items-center space-x-1.5 bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs">
+              <button
+                onClick={() => { setCurrentView('contests'); setSelectedProblemSlug(null); setActiveContestId(null); }}
+                className={`px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                  currentView === 'contests'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Contests
+              </button>
+              <button
+                onClick={() => { setCurrentView('problems'); setSelectedProblemSlug(null); setActiveContestId(null); }}
+                className={`px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                  currentView === 'problems' || currentView === 'problem_workspace'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Problems
+              </button>
+              <button
+                onClick={() => setCurrentView('quick_scan')}
+                className={`px-3.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                  currentView === 'quick_scan'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Ad-Hoc Scanner
+              </button>
+            </div>
           </div>
         </div>
 
         {/* View 1: Contest Hub */}
         {currentView === 'contests' && (
           <ContestHub
+            currentUser={currentUser}
             onSelectContestProblem={(slug, cid, title) => {
               setSelectedProblemSlug(slug);
               setActiveContestId(cid);
@@ -183,6 +248,7 @@ export default function App() {
             problemSlug={selectedProblemSlug}
             contestId={activeContestId}
             contestTitle={activeContestTitle}
+            currentUser={currentUser}
             onBack={() => {
               if (activeContestId) {
                 setCurrentView('contests');
@@ -408,6 +474,93 @@ export default function App() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* User Profile & Switcher Modal */}
+        {showProfileModal && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                  <User className="w-4 h-4 text-indigo-400" />
+                  <span>Competitor Identity & Switcher</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Select a test profile or enter your custom name for contest rankings.
+                </p>
+              </div>
+
+              {/* Quick Switch Preset Cards */}
+              <div className="space-y-2">
+                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block">
+                  Quick Profiles
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  {DEMO_USERS.map((u) => {
+                    const isSelected = currentUser.user_id === u.user_id;
+                    return (
+                      <button
+                        key={u.user_id}
+                        type="button"
+                        onClick={() => handleSwitchUser(u)}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                          isSelected
+                            ? 'bg-indigo-600/20 border-indigo-500 text-white'
+                            : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                        }`}
+                      >
+                        <div>
+                          <p className="text-xs font-bold leading-tight">{u.user_name}</p>
+                          <p className="text-[10px] font-mono text-slate-500">{u.handle}</p>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-indigo-400" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Custom Handle Input */}
+              <form onSubmit={handleCreateCustomProfile} className="space-y-3 pt-2 border-t border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block">
+                  Or Create Custom Handle
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Display Name"
+                    value={customName}
+                    onChange={(e) => setCustomName(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="text"
+                    placeholder="@handle"
+                    value={customHandle}
+                    onChange={(e) => setCustomHandle(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowProfileModal(false)}
+                    className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold"
+                  >
+                    Set Active
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 

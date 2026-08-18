@@ -13,6 +13,7 @@ from engine.forensics import LLMForensicEngine
 from engine.runner import CppExecutionEngine
 from engine.models import (
     ContestDetailResponse,
+    ContestLeaderboardResponse,
     ContestStatus,
     ContestSummaryResponse,
     CreateContestRequest,
@@ -28,7 +29,7 @@ from engine.repository import AssessmentRepository
 app = FastAPI(
     title="Competitive Programming & Code Integrity Platform API",
     description="Competitive coding platform with integrated AST plagiarism detector & LLM forensic engine",
-    version="3.1.0",
+    version="3.2.0",
 )
 
 detector_engine = PlagiarismDetector()
@@ -49,8 +50,8 @@ app.add_middleware(
 
 class CodeRunRequest(BaseModel):
     source_code: str
-    user_id: Optional[str] = "std_demo_101"
-    user_name: Optional[str] = "Alex Developer"
+    user_id: Optional[str] = "std_suman_01"
+    user_name: Optional[str] = "Suman"
     contest_id: Optional[str] = None
 
 
@@ -111,7 +112,7 @@ def health_check():
     return {
         "status": "online",
         "service": "Competitive Programming & Code Integrity Platform",
-        "version": "3.1.0",
+        "version": "3.2.0",
     }
 
 
@@ -155,7 +156,7 @@ def list_contests():
 
 
 @app.get("/api/contests/{contest_id}", response_model=ContestDetailResponse)
-def get_contest(contest_id: str, user_id: str = "std_demo_101"):
+def get_contest(contest_id: str, user_id: str = "std_suman_01"):
     c = repo.get_contest(contest_id)
     if not c:
         raise HTTPException(status_code=404, detail="Contest not found")
@@ -194,6 +195,14 @@ def get_contest(contest_id: str, user_id: str = "std_demo_101"):
         user_solved_count=len(user_solved_ids),
         user_penalty_minutes=round(participant.penalty_time_sec / 60.0, 1) if participant else 0.0,
     )
+
+
+@app.get("/api/contests/{contest_id}/leaderboard", response_model=ContestLeaderboardResponse)
+def get_contest_leaderboard(contest_id: str):
+    board = repo.get_contest_leaderboard(contest_id)
+    if not board:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    return board
 
 
 @app.post("/api/contests", response_model=ContestDetailResponse)
@@ -238,11 +247,11 @@ def create_contest(req: CreateContestRequest):
 
 
 @app.post("/api/contests/{contest_id}/register")
-def register_for_contest(contest_id: str, user_id: str = "std_demo_101", user_name: str = "Alex Developer"):
+def register_for_contest(contest_id: str, user_id: str = "std_suman_01", user_name: str = "Suman"):
     participant = repo.register_contest_participant(contest_id, user_id, user_name)
     if not participant:
         raise HTTPException(status_code=404, detail="Contest not found")
-    return {"message": "Successfully registered for contest", "user_id": user_id}
+    return {"message": "Successfully registered for contest", "user_id": user_id, "user_name": user_name}
 
 
 # --- Problem Platform Endpoints ---
@@ -401,8 +410,8 @@ def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
     # 2. Persist submission
     submission = repo.save_submission(
         problem_id=problem.problem_id,
-        user_id=req.user_id or "std_demo_101",
-        user_name=req.user_name or "Alex Developer",
+        user_id=req.user_id or "std_suman_01",
+        user_name=req.user_name or "Suman",
         source_code=req.source_code,
         execution_result=result,
         contest_id=req.contest_id,

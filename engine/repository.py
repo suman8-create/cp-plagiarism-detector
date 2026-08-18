@@ -6,9 +6,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from engine.models import (
     Contest,
+    ContestLeaderboardResponse,
     ContestParticipant,
+    ContestStatus,
     ExecutionResult,
+    LeaderboardProblemCell,
+    LeaderboardRow,
     Problem,
+    ProblemSummaryResponse,
     Submission,
     TestCase,
 )
@@ -116,18 +121,41 @@ int main() {
         )
 
     def _seed_default_contests(self):
-        """Seeds initial contests: Live and Upcoming."""
+        """Seeds initial contests: Live and Upcoming, with simulated competitor submissions."""
         all_prob_ids = list(self._problems.keys())
+        p_two_sum = all_prob_ids[0]
+        p_fib = all_prob_ids[1] if len(all_prob_ids) > 1 else all_prob_ids[0]
         
         # 1. Live Contest
         live_contest = self.create_contest(
             title="Bi-Weekly Contest #1",
             description="Live competitive programming contest. Solve all algorithmic challenges within 90 minutes.",
-            start_time=datetime.now(timezone.utc) - timedelta(minutes=15),
+            start_time=datetime.now(timezone.utc) - timedelta(minutes=25),
             duration_minutes=90,
             problem_ids=all_prob_ids,
         )
-        self.register_contest_participant(live_contest.contest_id, "std_demo_101", "Alex Developer")
+
+        # Seed simulated competitor: Alex Developer
+        self.register_contest_participant(live_contest.contest_id, "std_alex_101", "Alex Developer")
+        self.save_submission(
+            problem_id=p_fib,
+            user_id="std_alex_101",
+            user_name="Alex Developer",
+            source_code="// Alex's solution",
+            execution_result=ExecutionResult(status="Accepted", passed_test_cases=4, total_test_cases=4, execution_time_ms=14.2),
+            contest_id=live_contest.contest_id,
+        )
+
+        # Seed simulated competitor: Priya Sharma
+        self.register_contest_participant(live_contest.contest_id, "std_priya_202", "Priya Sharma")
+        self.save_submission(
+            problem_id=p_two_sum,
+            user_id="std_priya_202",
+            user_name="Priya Sharma",
+            source_code="// Priya TwoSum",
+            execution_result=ExecutionResult(status="Accepted", passed_test_cases=3, total_test_cases=3, execution_time_ms=18.5),
+            contest_id=live_contest.contest_id,
+        )
 
         # 2. Upcoming Contest
         self.create_contest(
@@ -174,6 +202,119 @@ int main() {
         if user_id not in contest.participants:
             contest.participants[user_id] = ContestParticipant(user_id=user_id, user_name=user_name)
         return contest.participants[user_id]
+
+    def get_contest_leaderboard(self, contest_id: str) -> Optional[ContestLeaderboardResponse]:
+        contest = self.get_contest(contest_id)
+        if not contest:
+            return None
+
+        # Build Problem summary headers
+        problems_list = []
+        for pid in contest.problem_ids:
+            p = self.get_problem(pid)
+            if p:
+                problems_list.append(
+                    ProblemSummaryResponse(
+                        problem_id=p.problem_id,
+                        title=p.title,
+                        slug=p.slug,
+                        difficulty=p.difficulty,
+                        submission_count=len(p.submissions),
+                        is_solved=False,
+                    )
+                )
+
+        # Calculate scores per participant
+        # ICPC Rule: Score = Solved count * 100
+        # Penalty = sum(Minutes elapsed to solve + (wrong_attempts_before_AC * 10 min))
+        user_submissions: Dict[str, List[Submission]] = {}
+        for sub in contest.submissions.values():
+            user_submissions.setdefault(sub.user_id, []).append(sub)
+
+        standings_data: List[LeaderboardRow] = []
+
+        for uid, part in contest.participants.items():
+            subs = user_submissions.get(uid, [])
+            # Sort chronologically
+            subs.sort(key=lambda s: s.submitted_at)
+
+            problem_results: Dict[str, LeaderboardProblemCell] = {}
+            total_penalty_min = 0.0
+            solved_count = 0
+
+            for pid in contest.problem_ids:
+                prob_subs = [s for s in subs if s.problem_id == pid]
+                if not prob_subs:
+                    problem_results[pid] = LeaderboardProblemCell(
+                        problem_id=pid,
+                        status="UNTOUCHED",
+                        attempts_count=0,
+                    )
+                    continue
+
+                attempts_before_ac = 0
+                is_ac = False
+                ac_time_min = None
+
+                for s in prob_subs:
+                    if s.execution_result.status == "Accepted":
+                        is_ac = True
+                        # Elapsed minutes from contest start
+                        c_start = contest.start_time if contest.start_time.tzinfo else contest.start_time.replace(tzinfo=timezone.utc)
+                        s_time = s.submitted_at if s.submitted_at.tzinfo else s.submitted_at.replace(tzinfo=timezone.utc)
+                        ac_time_min = round(max(0.0, (s_time - c_start).total_seconds() / 60.0), 1)
+                        attempts_before_ac += 1
+                        break
+                    else:
+                        attempts_before_ac += 1
+
+                if is_ac:
+                    solved_count += 1
+                    # 10 min penalty per prior failed attempt
+                    penalty_for_prob = (ac_time_min or 0.0) + (max(0, attempts_before_ac - 1) * 10.0)
+                    total_penalty_min += penalty_for_prob
+                    problem_results[pid] = LeaderboardProblemCell(
+                        problem_id=pid,
+                        status="SOLVED",
+                        attempts_count=attempts_before_ac,
+                        solved_time_min=ac_time_min,
+                    )
+                else:
+                    problem_results[pid] = LeaderboardProblemCell(
+                        problem_id=pid,
+                        status="ATTEMPTED",
+                        attempts_count=attempts_before_ac,
+                    )
+
+            standings_data.append(
+                LeaderboardRow(
+                    rank=1,  # will be assigned after sorting
+                    user_id=uid,
+                    user_name=part.user_name,
+                    score=solved_count * 100,
+                    problems_solved=solved_count,
+                    total_penalty_min=round(total_penalty_min, 1),
+                    problem_results=problem_results,
+                )
+            )
+
+        # Sort standings: 1. Higher Score/Solved, 2. Lower Penalty
+        standings_data.sort(key=lambda r: (-r.score, r.total_penalty_min))
+
+        # Assign ranks
+        for idx, row in enumerate(standings_data):
+            row.rank = idx + 1
+
+        is_locked = contest.status == ContestStatus.FINISHED
+
+        return ContestLeaderboardResponse(
+            contest_id=contest.contest_id,
+            title=contest.title,
+            status=contest.status.value,
+            is_locked=is_locked,
+            problems=problems_list,
+            standings=standings_data,
+        )
 
     # --- Problem Operations ---
 

@@ -193,3 +193,31 @@ class SubmissionRecordResponse(BaseModel):
     stdout: Optional[str] = None
     stderr: Optional[str] = None
     submitted_at: str
+
+
+# --- Leaderboard Schemas ---
+
+class LeaderboardProblemCell(BaseModel):
+    problem_id: str
+    status: str  # "SOLVED", "ATTEMPTED", "UNTOUCHED"
+    attempts_count: int
+    solved_time_min: Optional[float] = None
+
+
+class LeaderboardRow(BaseModel):
+    rank: int
+    user_id: str
+    user_name: str
+    score: int
+    problems_solved: int
+    total_penalty_min: float
+    problem_results: Dict[str, LeaderboardProblemCell]
+
+
+class ContestLeaderboardResponse(BaseModel):
+    contest_id: str
+    title: str
+    status: str
+    is_locked: bool
+    problems: List[ProblemSummaryResponse]
+    standings: List[LeaderboardRow]

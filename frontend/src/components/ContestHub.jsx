@@ -10,17 +10,22 @@ import {
   Circle, 
   Lock, 
   Calendar,
-  Zap,
-  Clock,
-  ArrowLeft
+  Clock, 
+  ArrowLeft,
+  Medal,
+  Flame,
+  XCircle
 } from 'lucide-react';
 
-export default function ContestHub({ onSelectContestProblem }) {
+export default function ContestHub({ currentUser, onSelectContestProblem }) {
   const [contests, setContests] = useState([]);
   const [activeContestId, setActiveContestId] = useState(null);
   const [contestDetail, setContestDetail] = useState(null);
+  const [activeTab, setActiveTab] = useState('problems'); // 'problems' | 'leaderboard'
+  const [leaderboard, setLeaderboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [timeLeft, setTimeLeft] = useState('');
 
   const fetchContests = async () => {
@@ -41,7 +46,7 @@ export default function ContestHub({ onSelectContestProblem }) {
   const fetchContestDetail = async (cid) => {
     try {
       setLoadingDetail(true);
-      const res = await fetch(`http://127.0.0.1:8000/api/contests/${cid}?user_id=std_demo_101`);
+      const res = await fetch(`http://127.0.0.1:8000/api/contests/${cid}?user_id=${currentUser.user_id}`);
       if (res.ok) {
         const data = await res.json();
         setContestDetail(data);
@@ -54,9 +59,33 @@ export default function ContestHub({ onSelectContestProblem }) {
     }
   };
 
+  const fetchLeaderboard = async (cid) => {
+    try {
+      setLoadingLeaderboard(true);
+      const res = await fetch(`http://127.0.0.1:8000/api/contests/${cid}/leaderboard`);
+      if (res.ok) {
+        const data = await res.json();
+        setLeaderboard(data);
+      }
+    } catch (err) {
+      console.error('Failed to load leaderboard:', err);
+    } finally {
+      setLoadingLeaderboard(false);
+    }
+  };
+
   useEffect(() => {
     fetchContests();
   }, []);
+
+  useEffect(() => {
+    if (activeContestId) {
+      fetchContestDetail(activeContestId);
+      if (activeTab === 'leaderboard') {
+        fetchLeaderboard(activeContestId);
+      }
+    }
+  }, [currentUser, activeContestId, activeTab]);
 
   // Timer countdown
   useEffect(() => {
@@ -98,7 +127,7 @@ export default function ContestHub({ onSelectContestProblem }) {
   const handleRegister = async () => {
     if (!contestDetail) return;
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/contests/${contestDetail.contest_id}/register?user_id=std_demo_101&user_name=Alex%20Developer`, {
+      const res = await fetch(`http://127.0.0.1:8000/api/contests/${contestDetail.contest_id}/register?user_id=${currentUser.user_id}&user_name=${encodeURIComponent(currentUser.user_name)}`, {
         method: 'POST'
       });
       if (res.ok) {
@@ -131,15 +160,22 @@ export default function ContestHub({ onSelectContestProblem }) {
     }
   };
 
+  const getRankBadge = (rank) => {
+    if (rank === 1) return <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-bold">🥇 1st</span>;
+    if (rank === 2) return <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-slate-300/10 border border-slate-300/30 text-slate-200 text-[11px] font-bold">🥈 2nd</span>;
+    if (rank === 3) return <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-amber-700/10 border border-amber-700/30 text-amber-500 text-[11px] font-bold">🥉 3rd</span>;
+    return <span className="font-mono text-xs font-semibold text-slate-400">#{rank}</span>;
+  };
+
   if (loading) {
     return (
       <div className="p-16 text-center text-xs text-slate-500 bg-slate-900/40 rounded-2xl border border-slate-800">
-        Loading contests...
+        Loading competitive contests...
       </div>
     );
   }
 
-  // --- View 1: Contest Details / Live Arena ---
+  // --- View 1: Contest Arena ---
   if (activeContestId && contestDetail) {
     const isLive = contestDetail.status === 'Live';
     const isUpcoming = contestDetail.status === 'Upcoming';
@@ -215,92 +251,226 @@ export default function ContestHub({ onSelectContestProblem }) {
 
             <div className="bg-slate-950/60 border border-slate-800 p-3 rounded-xl flex items-center justify-between">
               <div>
-                <span className="text-[10px] text-slate-500 uppercase font-semibold block">Registration</span>
-                <span className="text-xs font-semibold text-slate-200 mt-0.5 block">
-                  {contestDetail.user_registered ? 'Registered' : 'Not Joined'}
+                <span className="text-[10px] text-slate-500 uppercase font-semibold block">Player Profile</span>
+                <span className="text-xs font-semibold text-slate-200 mt-0.5 block line-clamp-1">
+                  {currentUser.user_name}
                 </span>
               </div>
-              {!contestDetail.user_registered && !isFinished && (
+              {!contestDetail.user_registered && !isFinished ? (
                 <button
                   onClick={handleRegister}
                   className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                 >
                   Join
                 </button>
+              ) : (
+                <span className="text-[11px] text-emerald-400 font-semibold">Active</span>
               )}
             </div>
           </div>
         </div>
 
-        {/* Contest Problems Section */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-200">Contest Problem Set</h3>
-            <span className="text-xs text-slate-500 font-mono">
-              {contestDetail.problems.length} Challenges
-            </span>
-          </div>
-
-          {isUpcoming ? (
-            <div className="p-12 text-center bg-slate-900/40 rounded-2xl border border-dashed border-slate-800 space-y-3">
-              <Lock className="w-8 h-8 text-amber-400 mx-auto" />
-              <h4 className="text-sm font-bold text-slate-200">Problem Set is Locked</h4>
-              <p className="text-xs text-slate-500 max-w-md mx-auto">
-                The problem statements will automatically unlock when the countdown finishes and the contest goes Live.
-              </p>
-            </div>
-          ) : (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-800">
-              {contestDetail.problems.map((prob, idx) => (
-                <div
-                  key={prob.problem_id}
-                  onClick={() => onSelectContestProblem(prob.slug, contestDetail.contest_id, contestDetail.title)}
-                  className="p-4 flex items-center justify-between hover:bg-slate-800/40 transition-colors cursor-pointer group"
-                >
-                  <div className="flex items-center space-x-3.5">
-                    <div className="shrink-0">
-                      {prob.is_solved ? (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                      ) : (
-                        <Circle className="w-5 h-5 text-slate-600 group-hover:text-slate-400 transition-colors" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs font-mono text-slate-500">#{idx + 1}</span>
-                        <h4 className="font-semibold text-sm text-slate-200 group-hover:text-indigo-400 transition-colors">
-                          {prob.title}
-                        </h4>
-                      </div>
-                      <span className="text-[11px] text-slate-500">100 Points • Submissions: {prob.submission_count}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-3">
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${getDifficultyColor(prob.difficulty)}`}>
-                      {prob.difficulty}
-                    </span>
-                    <button className="inline-flex items-center space-x-1 px-3 py-1.5 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-lg text-xs font-medium transition-colors cursor-pointer">
-                      <span>{prob.is_solved ? 'Review' : 'Solve'}</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        {/* Contest Arena Tabs */}
+        <div className="flex items-center space-x-2 border-b border-slate-800 pb-2">
+          <button
+            onClick={() => setActiveTab('problems')}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+              activeTab === 'problems'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800'
+            }`}
+          >
+            Problems Set ({contestDetail.problems.length})
+          </button>
+          <button
+            onClick={() => { setActiveTab('leaderboard'); fetchLeaderboard(contestDetail.contest_id); }}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1.5 ${
+              activeTab === 'leaderboard'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800'
+            }`}
+          >
+            <Medal className="w-3.5 h-3.5 text-amber-400" />
+            <span>Leaderboard</span>
+          </button>
         </div>
+
+        {/* Tab Content 1: Problems List */}
+        {activeTab === 'problems' && (
+          <div className="space-y-4">
+            {isUpcoming ? (
+              <div className="p-12 text-center bg-slate-900/40 rounded-2xl border border-dashed border-slate-800 space-y-3">
+                <Lock className="w-8 h-8 text-amber-400 mx-auto" />
+                <h4 className="text-sm font-bold text-slate-200">Problem Set is Locked</h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  The problem statements will unlock automatically when the contest starts.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-800">
+                {contestDetail.problems.map((prob, idx) => (
+                  <div
+                    key={prob.problem_id}
+                    onClick={() => onSelectContestProblem(prob.slug, contestDetail.contest_id, contestDetail.title)}
+                    className="p-4 flex items-center justify-between hover:bg-slate-800/40 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5">
+                      <div className="shrink-0">
+                        {prob.is_solved ? (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                        ) : (
+                          <Circle className="w-5 h-5 text-slate-600 group-hover:text-slate-400 transition-colors" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-mono text-slate-500">#{idx + 1}</span>
+                          <h4 className="font-semibold text-sm text-slate-200 group-hover:text-indigo-400 transition-colors">
+                            {prob.title}
+                          </h4>
+                        </div>
+                        <span className="text-[11px] text-slate-500">100 Points • Submissions: {prob.submission_count}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-3">
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${getDifficultyColor(prob.difficulty)}`}>
+                        {prob.difficulty}
+                      </span>
+                      <button className="inline-flex items-center space-x-1 px-3 py-1.5 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-lg text-xs font-medium transition-colors cursor-pointer">
+                        <span>{prob.is_solved ? 'Review' : 'Solve'}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab Content 2: Live Leaderboard Standings Table */}
+        {activeTab === 'leaderboard' && (
+          <div className="space-y-4">
+            {loadingLeaderboard ? (
+              <div className="p-12 text-center text-xs text-slate-500 bg-slate-900/40 rounded-xl border border-slate-800">
+                Calculating live rankings and penalty scores...
+              </div>
+            ) : !leaderboard || leaderboard.standings.length === 0 ? (
+              <div className="p-12 text-center text-xs text-slate-500 bg-slate-900/40 rounded-xl border border-slate-800">
+                No participant submissions logged yet for this contest.
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 bg-slate-950/80 text-slate-400 font-mono text-[11px]">
+                        <th className="py-3 px-4 w-16 text-center">Rank</th>
+                        <th className="py-3 px-4">Competitor</th>
+                        <th className="py-3 px-4 text-center">Score</th>
+                        <th className="py-3 px-4 text-center">Solved</th>
+                        <th className="py-3 px-4 text-center">Penalty</th>
+                        {leaderboard.problems.map((p, idx) => (
+                          <th key={p.problem_id} className="py-3 px-3 text-center min-w-[90px]">
+                            <span className="block text-slate-200">#{idx + 1}</span>
+                            <span className="block text-[9px] text-slate-500 font-normal truncate max-w-[80px]">{p.title}</span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/80">
+                      {leaderboard.standings.map((row) => {
+                        const isSelf = row.user_id === currentUser.user_id;
+                        return (
+                          <tr
+                            key={row.user_id}
+                            className={`transition-colors ${
+                              isSelf
+                                ? 'bg-indigo-950/40 font-semibold'
+                                : 'hover:bg-slate-800/30'
+                            }`}
+                          >
+                            <td className="py-3.5 px-4 text-center">
+                              {getRankBadge(row.rank)}
+                            </td>
+
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center space-x-2">
+                                <span className={`text-xs ${isSelf ? 'text-indigo-300 font-bold' : 'text-slate-200'}`}>
+                                  {row.user_name}
+                                </span>
+                                {isSelf && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-indigo-600 text-white">
+                                    YOU
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] font-mono text-slate-500">{row.user_id}</span>
+                            </td>
+
+                            <td className="py-3.5 px-4 text-center font-mono font-bold text-amber-400">
+                              {row.score}
+                            </td>
+
+                            <td className="py-3.5 px-4 text-center font-mono text-emerald-400 font-semibold">
+                              {row.problems_solved} / {leaderboard.problems.length}
+                            </td>
+
+                            <td className="py-3.5 px-4 text-center font-mono text-slate-400">
+                              {row.total_penalty_min}m
+                            </td>
+
+                            {/* Problem Cell Result */}
+                            {leaderboard.problems.map((p) => {
+                              const cell = row.problem_results[p.problem_id];
+                              if (!cell || cell.status === 'UNTOUCHED') {
+                                return (
+                                  <td key={p.problem_id} className="py-3.5 px-3 text-center text-slate-700 font-mono text-xs">
+                                    -
+                                  </td>
+                                );
+                              }
+
+                              if (cell.status === 'SOLVED') {
+                                return (
+                                  <td key={p.problem_id} className="py-3.5 px-3 text-center">
+                                    <span className="inline-block px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono text-[10px] font-bold">
+                                      +{cell.attempts_count} <span className="text-[9px] text-slate-400 font-normal">({cell.solved_time_min}m)</span>
+                                    </span>
+                                  </td>
+                                );
+                              }
+
+                              return (
+                                <td key={p.problem_id} className="py-3.5 px-3 text-center">
+                                  <span className="inline-block px-2 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 font-mono text-[10px] font-bold">
+                                    -{cell.attempts_count}
+                                  </span>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
 
-  // --- View 2: Contests Catalog / List ---
+  // --- View 2: Contests List ---
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold text-slate-100">Coding Contests</h2>
-          <p className="text-xs text-slate-400">Join scheduled contests, test your algorithms, and climb the rankings</p>
+          <p className="text-xs text-slate-400">Join scheduled contests, test your algorithms, and climb the live rankings</p>
         </div>
       </div>
 
@@ -333,7 +503,7 @@ export default function ContestHub({ onSelectContestProblem }) {
             <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
               <span className="font-mono text-slate-500">{c.problem_count} Problems • {c.participant_count} Registered</span>
               <button className="inline-flex items-center space-x-1 text-indigo-400 group-hover:text-indigo-300 font-semibold cursor-pointer">
-                <span>Enter Contest</span>
+                <span>Enter Arena</span>
                 <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
               </button>
             </div>
