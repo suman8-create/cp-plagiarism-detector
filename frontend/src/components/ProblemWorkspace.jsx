@@ -14,20 +14,26 @@ import {
   RotateCcw,
   RefreshCw,
   History,
-  Trophy
+  Trophy,
+  Copy,
+  Check,
+  ChevronRight,
+  ChevronDown
 } from 'lucide-react';
 
 export default function ProblemWorkspace({ problemSlug, contestId, contestTitle, onBack }) {
   const [problem, setProblem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [code, setCode] = useState('');
-  const [activeTab, setActiveTab] = useState('description');
+  const [activeTab, setActiveTab] = useState('description'); // 'description' | 'submissions'
   const [submissionsList, setSubmissionsList] = useState([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
   const [selectedTestCaseIndex, setSelectedTestCaseIndex] = useState(0);
   const [consoleOutput, setConsoleOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [expandedSubmissionId, setExpandedSubmissionId] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
 
   const fetchProblem = async () => {
     try {
@@ -52,6 +58,9 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
       if (res.ok) {
         const data = await res.json();
         setSubmissionsList(data);
+        if (data.length > 0 && !expandedSubmissionId) {
+          setExpandedSubmissionId(data[0].submission_id);
+        }
       }
     } catch (err) {
       console.error('Failed to load submissions:', err);
@@ -125,7 +134,7 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
     setIsSubmitting(true);
     setConsoleOutput({
       status: 'Evaluating Solution',
-      message: 'Running against full test case suite...'
+      message: 'Running against full test case suite & recording submission...'
     });
 
     try {
@@ -158,6 +167,7 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
         submitted_at: data.submitted_at,
       });
 
+      // Refresh submissions history list
       fetchSubmissions();
     } catch (err) {
       setConsoleOutput({
@@ -167,6 +177,12 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleCopyCode = (subCode, id) => {
+    navigator.clipboard.writeText(subCode);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const getStatusBadge = (status) => {
@@ -359,38 +375,87 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
                 </div>
               </>
             ) : (
-              /* Submissions History Tab */
+              /* Enhanced Submissions History View */
               <div className="space-y-3">
                 {loadingSubmissions ? (
                   <div className="text-center py-8 text-slate-500">Loading submissions history...</div>
                 ) : submissionsList.length === 0 ? (
                   <div className="text-center py-12 text-slate-500">
-                    No past submissions recorded yet for this problem. Click "Submit" to record an attempt.
+                    No submissions recorded yet for this problem. Click "Submit" to record an attempt.
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-800 border border-slate-800 rounded-xl overflow-hidden">
-                    {submissionsList.map((sub) => (
-                      <div key={sub.submission_id} className="p-3 bg-slate-950/50 flex items-center justify-between hover:bg-slate-800/30 transition-colors text-xs">
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-2">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${getStatusBadge(sub.status)}`}>
-                              {sub.status}
-                            </span>
-                            <span className="font-mono text-[11px] text-slate-400">
-                              {sub.passed_test_cases}/{sub.total_test_cases} tests
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-500">
-                            By {sub.user_name} • {new Date(sub.submitted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                          </p>
-                        </div>
+                  <div className="space-y-2">
+                    {submissionsList.map((sub) => {
+                      const isExpanded = expandedSubmissionId === sub.submission_id;
+                      return (
+                        <div
+                          key={sub.submission_id}
+                          className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/60 transition-colors"
+                        >
+                          {/* Submission Row Header */}
+                          <div 
+                            onClick={() => setExpandedSubmissionId(isExpanded ? null : sub.submission_id)}
+                            className="p-3.5 flex items-center justify-between hover:bg-slate-800/40 cursor-pointer"
+                          >
+                            <div className="flex items-center space-x-3">
+                              {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                              <div className="space-y-1">
+                                <div className="flex items-center space-x-2">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${getStatusBadge(sub.status)}`}>
+                                    {sub.status}
+                                  </span>
+                                  <span className="font-mono text-[11px] text-slate-400">
+                                    {sub.passed_test_cases}/{sub.total_test_cases} test cases
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-slate-500">
+                                  Submitted at {new Date(sub.submitted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} • ID: <span className="font-mono">{sub.submission_id}</span>
+                                </p>
+                              </div>
+                            </div>
 
-                        <div className="text-right">
-                          <span className="text-[11px] font-mono text-slate-400">{sub.execution_time_ms} ms</span>
-                          <span className="block text-[10px] font-mono text-slate-600">{sub.submission_id}</span>
+                            <div className="text-right">
+                              <span className="text-xs font-mono font-semibold text-slate-300 block">{sub.execution_time_ms} ms</span>
+                              <span className="text-[10px] text-slate-500 font-mono">Runtime</span>
+                            </div>
+                          </div>
+
+                          {/* Expanded Code & Diagnostics Drawer */}
+                          {isExpanded && (
+                            <div className="p-4 border-t border-slate-800 bg-slate-950 space-y-3">
+                              {sub.error_message && (
+                                <div className="p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg text-red-300 text-xs font-mono">
+                                  {sub.error_message}
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-semibold text-slate-400">Submitted C++ Code</span>
+                                <div className="flex items-center space-x-2">
+                                  <button
+                                    onClick={() => setCode(sub.source_code)}
+                                    className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded text-[11px] font-medium transition-colors cursor-pointer"
+                                  >
+                                    Load into Editor
+                                  </button>
+                                  <button
+                                    onClick={() => handleCopyCode(sub.source_code, sub.submission_id)}
+                                    className="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors cursor-pointer"
+                                    title="Copy Code"
+                                  >
+                                    {copiedId === sub.submission_id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                              </div>
+
+                              <pre className="p-3 bg-slate-900 border border-slate-800 rounded-lg text-[11px] font-mono text-slate-200 overflow-x-auto max-h-56 leading-relaxed">
+                                {sub.source_code}
+                              </pre>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

@@ -36,8 +36,6 @@ class Submission(BaseModel):
     source_file: str = "solution.cpp"
     source_code: str
     contest_id: Optional[str] = None
-    assessment_id: Optional[str] = None
-    question_id: Optional[str] = None
     execution_result: ExecutionResult = Field(default_factory=ExecutionResult)
     submitted_at: datetime = Field(default_factory=get_utc_now)
 
@@ -71,7 +69,7 @@ class ContestParticipant(BaseModel):
     score: int = 0
     penalty_time_sec: float = 0.0
     solved_problem_ids: List[str] = Field(default_factory=list)
-    solved_timestamps: Dict[str, str] = Field(default_factory=dict)  # problem_id -> ISO string
+    solved_timestamps: Dict[str, str] = Field(default_factory=dict)
 
 
 class Contest(BaseModel):
@@ -102,31 +100,7 @@ class Contest(BaseModel):
         return ContestStatus.LIVE
 
 
-class Student(BaseModel):
-    student_id: str
-    name: str
-    submission_ids: List[str] = Field(default_factory=list)
-
-
-class Question(BaseModel):
-    question_id: str
-    assessment_id: str
-    title: str
-    description: str = ""
-    submissions: Dict[str, Submission] = Field(default_factory=dict)
-    last_analyzed_at: Optional[datetime] = None
-
-
-class Assessment(BaseModel):
-    assessment_id: str
-    title: str
-    description: str = ""
-    created_at: datetime = Field(default_factory=get_utc_now)
-    questions: Dict[str, Question] = Field(default_factory=dict)
-    students: Dict[str, Student] = Field(default_factory=dict)
-
-
-# --- API Request & Response Schemas ---
+# --- API Schemas ---
 
 class TestCaseSchema(BaseModel):
     input_data: str
@@ -205,30 +179,17 @@ class ContestDetailResponse(BaseModel):
     user_penalty_minutes: float = 0.0
 
 
-class CreateAssessmentRequest(BaseModel):
-    title: str
-    description: Optional[str] = ""
-
-
-class AssessmentSummaryResponse(BaseModel):
-    assessment_id: str
-    title: str
-    description: str
-    created_at: str
-    question_count: int
-    student_count: int
-    total_submissions: int
-
-
-class CreateQuestionRequest(BaseModel):
-    title: str
-    description: Optional[str] = ""
-
-
-class QuestionSummaryResponse(BaseModel):
-    question_id: str
-    assessment_id: str
-    title: str
-    description: str
-    submission_count: int
-    is_analyzed: bool
+class SubmissionRecordResponse(BaseModel):
+    submission_id: str
+    problem_id: str
+    user_id: str
+    user_name: str
+    status: str
+    passed_test_cases: int
+    total_test_cases: int
+    execution_time_ms: float
+    source_code: str
+    error_message: Optional[str] = None
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
+    submitted_at: str

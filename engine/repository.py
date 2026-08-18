@@ -5,13 +5,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from engine.models import (
-    Assessment,
     Contest,
     ContestParticipant,
     ExecutionResult,
     Problem,
-    Question,
-    Student,
     Submission,
     TestCase,
 )
@@ -19,12 +16,10 @@ from engine.models import (
 
 class AssessmentRepository:
     """
-    Unified in-memory data store for Problems, Contests,
-    Submissions, and Test Cases.
+    Data store for Problems, Contests, Submissions, and Test Cases.
     """
 
     def __init__(self):
-        self._assessments: Dict[str, Assessment] = {}
         self._problems: Dict[str, Problem] = {}
         self._submissions: Dict[str, Submission] = {}
         self._contests: Dict[str, Contest] = {}
@@ -132,7 +127,6 @@ int main() {
             duration_minutes=90,
             problem_ids=all_prob_ids,
         )
-        # Pre-register default demo student
         self.register_contest_participant(live_contest.contest_id, "std_demo_101", "Alex Developer")
 
         # 2. Upcoming Contest
@@ -231,8 +225,6 @@ int main() {
         source_code: str,
         source_file: str = "solution.cpp",
         execution_result: Optional[ExecutionResult] = None,
-        assessment_id: Optional[str] = None,
-        question_id: Optional[str] = None,
         contest_id: Optional[str] = None,
     ) -> Submission:
         submission_id = f"sub_{uuid.uuid4().hex[:8]}"
@@ -246,25 +238,20 @@ int main() {
             source_file=source_file,
             source_code=source_code,
             contest_id=contest_id,
-            assessment_id=assessment_id,
-            question_id=question_id,
             execution_result=execution_result or ExecutionResult(),
             submitted_at=now,
         )
 
         self._submissions[submission_id] = submission
 
-        # Attach to Problem
         problem = self.get_problem(problem_id)
         if problem:
             problem.submissions[submission_id] = submission
 
-        # Attach to Contest if scoped and update score/penalty
         if contest_id and contest_id in self._contests:
             contest = self._contests[contest_id]
             contest.submissions[submission_id] = submission
 
-            # Ensure participant is registered
             if user_id not in contest.participants:
                 contest.participants[user_id] = ContestParticipant(user_id=user_id, user_name=user_name)
             
@@ -274,7 +261,6 @@ int main() {
                     part.solved_problem_ids.append(problem_id)
                     part.score += 100
                     part.solved_timestamps[problem_id] = now.isoformat()
-                    # Calculate minutes elapsed from contest start
                     elapsed_min = max(0.0, (now - contest.start_time).total_seconds() / 60.0)
                     part.penalty_time_sec += elapsed_min * 60.0
 
@@ -288,42 +274,3 @@ int main() {
         if not problem:
             return []
         return sorted(problem.submissions.values(), key=lambda s: s.submitted_at, reverse=True)
-
-    # --- Assessment Operations ---
-
-    def create_assessment(self, title: str, description: str = "") -> Assessment:
-        assessment_id = f"asm_{uuid.uuid4().hex[:8]}"
-        assessment = Assessment(
-            assessment_id=assessment_id,
-            title=title,
-            description=description,
-        )
-        self._assessments[assessment_id] = assessment
-        return assessment
-
-    def get_assessment(self, assessment_id: str) -> Optional[Assessment]:
-        return self._assessments.get(assessment_id)
-
-    def list_assessments(self) -> List[Assessment]:
-        return list(self._assessments.values())
-
-    def add_question(self, assessment_id: str, title: str, description: str = "") -> Optional[Question]:
-        assessment = self.get_assessment(assessment_id)
-        if not assessment:
-            return None
-
-        question_id = f"q_{uuid.uuid4().hex[:8]}"
-        question = Question(
-            question_id=question_id,
-            assessment_id=assessment_id,
-            title=title,
-            description=description,
-        )
-        assessment.questions[question_id] = question
-        return question
-
-    def get_question(self, assessment_id: str, question_id: str) -> Optional[Question]:
-        assessment = self.get_assessment(assessment_id)
-        if not assessment:
-            return None
-        return assessment.questions.get(question_id)
