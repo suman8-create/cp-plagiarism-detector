@@ -14,31 +14,53 @@ import {
   Bot, 
   ChevronDown, 
   ChevronUp, 
-  Layers 
+  Layers,
+  Code2
 } from 'lucide-react';
 import DiffViewer from './components/DiffViewer';
 import AssessmentDetail from './components/AssessmentDetail';
+import ProblemWorkspace from './components/ProblemWorkspace';
 
 export default function App() {
-  // Navigation State
-  const [currentView, setCurrentView] = useState('assessments'); // 'assessments' | 'assessment_detail' | 'quick_scan'
+  // Navigation State: 'problems' | 'problem_workspace' | 'assessments' | 'assessment_detail' | 'quick_scan'
+  const [currentView, setCurrentView] = useState('problems');
+  
+  // Problems State
+  const [problems, setProblems] = useState([]);
+  const [selectedProblemSlug, setSelectedProblemSlug] = useState(null);
+  const [loadingProblems, setLoadingProblems] = useState(false);
+
+  // Assessments State
   const [assessments, setAssessments] = useState([]);
   const [selectedAssessment, setSelectedAssessment] = useState(null);
   const [loadingAssessments, setLoadingAssessments] = useState(false);
-
-  // New Assessment Form Modal
   const [showNewModal, setShowNewModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // Quick Scan / Single-batch Upload State
+  // Quick Scan State
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [activeComparison, setActiveComparison] = useState(null);
   const [expandedForensics, setExpandedForensics] = useState({});
+
+  const fetchProblems = async () => {
+    try {
+      setLoadingProblems(true);
+      const res = await fetch('http://127.0.0.1:8000/api/problems');
+      if (res.ok) {
+        const data = await res.json();
+        setProblems(data);
+      }
+    } catch (err) {
+      console.error('Failed to load problems:', err);
+    } finally {
+      setLoadingProblems(false);
+    }
+  };
 
   const fetchAssessments = async () => {
     try {
@@ -56,6 +78,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    fetchProblems();
     fetchAssessments();
   }, []);
 
@@ -129,24 +152,45 @@ export default function App() {
     return { bg: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400', label: 'Human Authored' };
   };
 
+  const getDifficultyColor = (diff) => {
+    switch (diff?.toLowerCase()) {
+      case 'easy':
+        return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+      case 'hard':
+        return 'text-red-400 bg-red-500/10 border-red-500/20';
+      default:
+        return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-12">
-      <div className="max-w-6xl mx-auto space-y-8">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-10">
+      <div className="max-w-6xl mx-auto space-y-6">
         
         {/* Main Navbar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
           <div className="space-y-1">
             <div className="inline-flex items-center space-x-2 px-2.5 py-0.5 bg-indigo-500/10 border border-indigo-500/30 rounded-full text-indigo-400 text-xs font-medium">
               <Sparkles className="w-3 h-3" />
-              <span>Assessment-Aware Integrity Platform</span>
+              <span>Assessment & Competitive Platform</span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-extrabold text-white">
-              Code Assessment Integrity Platform
+            <h1 className="text-xl md:text-2xl font-extrabold text-white">
+              Code Assessment & Integrity Engine
             </h1>
           </div>
 
-          {/* View Mode Switcher */}
-          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs">
+          {/* Navigation View Switcher */}
+          <div className="flex items-center space-x-1.5 bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs">
+            <button
+              onClick={() => { setCurrentView('problems'); setSelectedProblemSlug(null); }}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                currentView === 'problems' || currentView === 'problem_workspace'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Problems
+            </button>
             <button
               onClick={() => { setCurrentView('assessments'); setSelectedAssessment(null); }}
               className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
@@ -155,7 +199,7 @@ export default function App() {
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Assessments Workspace
+              Assessments
             </button>
             <button
               onClick={() => setCurrentView('quick_scan')}
@@ -165,37 +209,87 @@ export default function App() {
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Ad-Hoc File Scanner
+              Ad-Hoc Scanner
             </button>
           </div>
         </div>
 
-        {/* View 1: Assessment Detail View */}
+        {/* View 1: Problem Coding Workspace */}
+        {currentView === 'problem_workspace' && selectedProblemSlug && (
+          <ProblemWorkspace
+            problemSlug={selectedProblemSlug}
+            onBack={() => { setCurrentView('problems'); setSelectedProblemSlug(null); fetchProblems(); }}
+          />
+        )}
+
+        {/* View 2: Problems Catalog List */}
+        {currentView === 'problems' && (
+          <div className="space-y-5">
+            <div>
+              <h2 className="text-base font-bold text-slate-100">Coding Problems</h2>
+              <p className="text-xs text-slate-400">Select a problem to open the C++ code editor and run test cases</p>
+            </div>
+
+            {loadingProblems ? (
+              <div className="p-12 text-center text-xs text-slate-500 bg-slate-900/40 rounded-2xl border border-slate-800">
+                Loading problems catalog...
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-800">
+                {problems.map((prob, idx) => (
+                  <div
+                    key={prob.problem_id}
+                    onClick={() => { setSelectedProblemSlug(prob.slug); setCurrentView('problem_workspace'); }}
+                    className="p-4 flex items-center justify-between hover:bg-slate-800/40 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5">
+                      <span className="text-xs font-mono text-slate-500 w-6">#{idx + 1}</span>
+                      <div>
+                        <h3 className="font-semibold text-sm text-slate-200 group-hover:text-indigo-400 transition-colors">
+                          {prob.title}
+                        </h3>
+                        <span className="text-[11px] text-slate-500">Submissions: {prob.submission_count}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-3">
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${getDifficultyColor(prob.difficulty)}`}>
+                        {prob.difficulty}
+                      </span>
+                      <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-indigo-400 group-hover:translate-x-0.5 transition-all" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* View 3: Assessment Detail View */}
         {currentView === 'assessment_detail' && selectedAssessment && (
           <AssessmentDetail
             assessment={selectedAssessment}
             onBack={() => { setCurrentView('assessments'); setSelectedAssessment(null); fetchAssessments(); }}
             onSelectQuestion={(q) => {
-              // Switches to Quick Scan with question context for now (Phase 3 will enhance this)
               setCurrentView('quick_scan');
             }}
           />
         )}
 
-        {/* View 2: Assessments List View */}
+        {/* View 4: Assessments Workspace */}
         {currentView === 'assessments' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-bold text-slate-100">Assessments & Exams</h2>
+                <h2 className="text-base font-bold text-slate-100">Assessments & Exams</h2>
                 <p className="text-xs text-slate-400">Manage cohorts, problem baselines, and submission integrity</p>
               </div>
 
               <button
                 onClick={() => setShowNewModal(true)}
-                className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-medium transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5" />
                 <span>Create Assessment</span>
               </button>
             </div>
@@ -206,37 +300,31 @@ export default function App() {
               </div>
             ) : assessments.length === 0 ? (
               <div className="p-12 text-center bg-slate-900/40 rounded-2xl border border-dashed border-slate-800 space-y-3">
-                <Layers className="w-10 h-10 text-slate-600 mx-auto" />
+                <Layers className="w-8 h-8 text-slate-600 mx-auto" />
                 <h3 className="text-sm font-semibold text-slate-300">No assessments created yet</h3>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
                   Create your first assessment to organize problem statements and monitor cohort similarity baselines.
                 </p>
-                <button
-                  onClick={() => setShowNewModal(true)}
-                  className="px-4 py-2 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-medium hover:bg-indigo-600/30 transition-colors"
-                >
-                  Create Assessment Now
-                </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {assessments.map((asm) => (
                   <div
                     key={asm.assessment_id}
                     onClick={() => { setSelectedAssessment(asm); setCurrentView('assessment_detail'); }}
-                    className="bg-slate-900/80 border border-slate-800 hover:border-indigo-500/50 p-5 rounded-2xl transition-all cursor-pointer space-y-4 group hover:shadow-lg"
+                    className="bg-slate-900/80 border border-slate-800 hover:border-indigo-500/50 p-5 rounded-xl transition-all cursor-pointer space-y-4 group hover:shadow-lg"
                   >
                     <div className="flex items-start justify-between">
-                      <div className="p-2.5 bg-indigo-600/10 text-indigo-400 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                        <FolderGit2 className="w-5 h-5" />
+                      <div className="p-2 bg-indigo-600/10 text-indigo-400 rounded-lg group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                        <FolderGit2 className="w-4 h-4" />
                       </div>
-                      <span className="text-[11px] font-mono text-slate-500 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                      <span className="text-[10px] font-mono text-slate-500 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
                         {asm.assessment_id}
                       </span>
                     </div>
 
                     <div>
-                      <h3 className="font-bold text-slate-100 group-hover:text-indigo-300 transition-colors">
+                      <h3 className="font-bold text-slate-100 group-hover:text-indigo-300 transition-colors text-sm">
                         {asm.title}
                       </h3>
                       <p className="text-xs text-slate-400 line-clamp-2 mt-1">
@@ -261,9 +349,9 @@ export default function App() {
           </div>
         )}
 
-        {/* View 3: Ad-Hoc / Quick Scan View (Preserves existing working flow) */}
+        {/* View 5: Ad-Hoc / Quick Scan View */}
         {currentView === 'quick_scan' && (
-          <div className="space-y-8">
+          <div className="space-y-6">
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 md:p-8 space-y-4">
               <div className="border-2 border-dashed border-slate-700 hover:border-indigo-500/60 transition-colors rounded-xl p-8 text-center flex flex-col items-center justify-center space-y-3 cursor-pointer relative bg-slate-900/30">
                 <input 
@@ -304,7 +392,7 @@ export default function App() {
               <button
                 onClick={handleQuickUpload}
                 disabled={analyzing || selectedFiles.length === 0}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-2 cursor-pointer"
+                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-2 cursor-pointer text-xs"
               >
                 {analyzing ? (
                   <>
@@ -319,8 +407,7 @@ export default function App() {
 
             {/* Results Section */}
             {result && (
-              <div className="space-y-8">
-                {/* Stats Metrics */}
+              <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
                     <p className="text-xs text-slate-400">Total Submissions</p>
@@ -342,15 +429,14 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* AI Ghostwriter & Watermark Forensic Audit Section */}
+                {/* AI Forensics */}
                 {result.forensics && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
                     <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
                       <div className="flex items-center space-x-2">
                         <Bot className="w-5 h-5 text-indigo-400" />
-                        <h3 className="font-semibold text-slate-200">AI Ghostwriter & Watermark Forensic Audit</h3>
+                        <h3 className="font-semibold text-slate-200 text-xs">AI Ghostwriter & Watermark Forensic Audit</h3>
                       </div>
-                      <span className="text-xs text-slate-500">Zero-width characters, LLM docstrings & markdown checks</span>
                     </div>
                     <div className="divide-y divide-slate-800/60">
                       {Object.entries(result.forensics).map(([fname, report]) => {
@@ -362,7 +448,7 @@ export default function App() {
                             <div className="flex items-center justify-between">
                               <div className="flex items-center space-x-3">
                                 <FileCode className="w-4 h-4 text-slate-400" />
-                                <span className="font-mono text-sm text-slate-200">{fname}</span>
+                                <span className="font-mono text-xs text-slate-200">{fname}</span>
                               </div>
                               <div className="flex items-center space-x-3">
                                 <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${badge.bg}`}>
@@ -380,8 +466,7 @@ export default function App() {
                             </div>
 
                             {isExpanded && report.flags.length > 0 && (
-                              <div className="mt-3 p-3 bg-slate-950/80 border border-slate-800 rounded-lg space-y-1.5 text-xs font-mono">
-                                <p className="text-slate-400 font-sans font-medium text-xs mb-1">Detected Forensic Signatures:</p>
+                              <div className="mt-3 p-3 bg-slate-950/80 border border-slate-800 rounded-lg space-y-1 text-xs font-mono">
                                 {report.flags.map((flag, idx) => (
                                   <div key={idx} className="flex items-start space-x-2 text-red-300/90">
                                     <span className="text-red-500 shrink-0">•</span>
@@ -400,7 +485,7 @@ export default function App() {
                 {/* Leaderboard Table */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
                   <div className="p-4 border-b border-slate-800 bg-slate-950/60">
-                    <h3 className="font-semibold text-slate-200">Plagiarism Comparison Leaderboard</h3>
+                    <h3 className="font-semibold text-slate-200 text-xs">Plagiarism Comparison Leaderboard</h3>
                   </div>
                   <div className="divide-y divide-slate-800">
                     {result.comparisons.map((comp, idx) => (
@@ -408,10 +493,10 @@ export default function App() {
                         <div className="flex items-center space-x-4">
                           <FileCode className="w-5 h-5 text-slate-500" />
                           <div>
-                            <p className="font-medium text-slate-200 text-sm">
+                            <p className="font-medium text-slate-200 text-xs">
                               {comp.file_a} <span className="text-slate-500 font-normal">and</span> {comp.file_b}
                             </p>
-                            <p className="text-xs text-slate-500 mt-0.5">
+                            <p className="text-[11px] text-slate-500 mt-0.5">
                               {comp.shared_fingerprints_count} matching Winnowed fingerprints
                             </p>
                           </div>

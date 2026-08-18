@@ -2,13 +2,14 @@
 
 import io
 import zipfile
-from typing import Dict, List
+from typing import Dict, List, Optional
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from engine.detector import PlagiarismDetector
 from engine.forensics import LLMForensicEngine
+from engine.runner import CppExecutionEngine
 from engine.models import (
     AssessmentSummaryResponse,
     CreateAssessmentRequest,
@@ -25,11 +26,12 @@ from engine.repository import AssessmentRepository
 app = FastAPI(
     title="Code Assessment & Integrity Platform API",
     description="Competitive coding platform with integrated AST plagiarism detector & LLM forensic engine",
-    version="2.1.0",
+    version="2.2.0",
 )
 
 detector_engine = PlagiarismDetector()
 forensic_engine = LLMForensicEngine()
+exec_runner = CppExecutionEngine()
 repo = AssessmentRepository()
 
 app.add_middleware(
@@ -41,7 +43,24 @@ app.add_middleware(
 )
 
 
-# --- Response Models for Legacy & Shared Endpoints ---
+# --- Execution API Schemas ---
+
+class CodeRunRequest(BaseModel):
+    source_code: str
+    custom_input: Optional[str] = None
+
+
+class CodeExecutionResponse(BaseModel):
+    status: str                  # "Accepted", "Wrong Answer", "Compilation Error", "Time Limit Exceeded", "Runtime Error"
+    passed_test_cases: int
+    total_test_cases: int
+    execution_time_ms: float
+    stdout: str
+    stderr: str
+    error_message: Optional[str] = None
+
+
+# --- Shared / Legacy Response Schemas ---
 
 class MatchSpanModel(BaseModel):
     start_line: int
@@ -86,7 +105,7 @@ def health_check():
     return {
         "status": "online",
         "service": "Code Assessment & Integrity Platform",
-        "version": "2.1.0"
+        "version": "2.2.0"
     }
 
 
@@ -108,7 +127,7 @@ def get_template_stats():
     )
 
 
-# --- Problem Platform Endpoints (New) ---
+# --- Problem Platform Endpoints ---
 
 @app.get("/api/problems", response_model=List[ProblemSummaryResponse])
 def list_problems():
@@ -205,6 +224,59 @@ def create_problem(req: CreateProblemRequest):
         examples=problem.examples,
         sample_test_cases=sample_tests,
         submission_count=0,
+    )
+
+
+# --- Execution Endpoints (New in Phase 4) ---
+
+@app.post("/api/problems/{problem_id_or_slug}/run", response_model=CodeExecutionResponse)
+def run_sample_cases(problem_id_or_slug: str, req: CodeRunRequest):
+    problem = repo.get_problem(problem_id_or_slug)
+    if not problem:
+        raise HTTPException(status_code=404, detail="Problem not found")
+
+    sample_cases = [tc for tc in problem.test_cases if tc.is_sample]
+    if not sample_cases:
+        sample_cases = problem.test_cases[:1]
+
+    result = exec_runner.execute(
+        source_code=req.source_code,
+        test_cases=sample_cases,
+        time_limit_sec=problem.time_limit_sec,
+    )
+
+    return CodeExecutionResponse(
+        status=result.status,
+        passed_test_cases=result.passed_test_cases,
+        total_test_cases=result.total_test_cases,
+        execution_time_ms=result.execution_time_ms,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        error_message=result.error_message,
+    )
+
+
+@app.post("/api/problems/{problem_id_or_slug}/submit", response_model=CodeExecutionResponse)
+def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
+    problem = repo.get_problem(problem_id_or_slug)
+    if not problem:
+        raise HTTPException(status_code=404, detail="Problem not found")
+
+    # Evaluate against all test cases (sample + hidden)
+    result = exec_runner.execute(
+        source_code=req.source_code,
+        test_cases=problem.test_cases,
+        time_limit_sec=problem.time_limit_sec,
+    )
+
+    return CodeExecutionResponse(
+        status=result.status,
+        passed_test_cases=result.passed_test_cases,
+        total_test_cases=result.total_test_cases,
+        execution_time_ms=result.execution_time_ms,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        error_message=result.error_message,
     )
 
 
