@@ -26,13 +26,7 @@ int main() {
         TestCase(input_data="10 20", expected_output="30"),
     ]
     res_ac = runner.execute(good_code, test_cases)
-    
-    print(f"DEBUG res_ac.status: {res_ac.status}")
-    print(f"DEBUG res_ac.error_message: {res_ac.error_message}")
-    print(f"DEBUG res_ac.stderr: {res_ac.stderr}")
-    print(f"DEBUG res_ac.stdout: {res_ac.stdout}")
-    
-    assert res_ac.status == "Accepted", f"Expected 'Accepted' but got '{res_ac.status}' (Error: {res_ac.error_message}, stderr: {res_ac.stderr})"
+    assert res_ac.status == "Accepted", f"Expected 'Accepted', got '{res_ac.status}' (Error: {res_ac.error_message}, stderr: {res_ac.stderr})"
     assert res_ac.passed_test_cases == 2
     print("[PASS] Execution: 'Accepted' verdict verified.")
 
@@ -42,20 +36,20 @@ using namespace std;
 int main() {
     int a, b;
     if (cin >> a >> b) {
-        cout << (a * b) << endl;
+        cout << 9999 << endl;
     }
     return 0;
 }
 """
     res_wa = runner.execute(wrong_code, test_cases)
-    assert res_wa.status == "Wrong Answer"
+    assert res_wa.status == "Wrong Answer", f"Expected 'Wrong Answer', got '{res_wa.status}'"
     assert res_wa.passed_test_cases == 0
     print("[PASS] Execution: 'Wrong Answer' verdict verified.")
 
     # 3. Test Compilation Error
     broken_code = """#include <iostream>
 int main() {
-    invalid_syntax_error();
+    this_is_an_invalid_syntax_error();
     return 0;
 }
 """
@@ -76,6 +70,7 @@ int main() {
 
 
 def test_execution_api_endpoint():
+    # 1. Correct code -> Accepted
     fib_solution = """#include <iostream>
 using namespace std;
 int fib(int n) {
@@ -98,8 +93,22 @@ int main() {
     res = client.post("/api/problems/fibonacci-number/run", json={"source_code": fib_solution})
     assert res.status_code == 200
     data = res.json()
-    assert data["status"] == "Accepted", f"API /run returned {data}"
-    print("[PASS] API '/run' endpoint verified.")
+    assert data["status"] == "Accepted", f"Expected Accepted, got {data}"
+    print("[PASS] API '/run' endpoint (Accepted) verified.")
+
+    # 2. Incorrect code -> Wrong Answer
+    wrong_fib = """#include <iostream>
+using namespace std;
+int main() {
+    cout << 0 << endl;
+    return 0;
+}
+"""
+    res_wrong = client.post("/api/problems/fibonacci-number/run", json={"source_code": wrong_fib})
+    assert res_wrong.status_code == 200
+    data_wrong = res_wrong.json()
+    assert data_wrong["status"] == "Wrong Answer", f"Expected Wrong Answer, got {data_wrong}"
+    print("[PASS] API '/run' endpoint (Wrong Answer) verified.")
 
 
 if __name__ == "__main__":
