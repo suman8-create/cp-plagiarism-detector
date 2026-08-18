@@ -31,33 +31,34 @@ class AssessmentRepository:
         return re.sub(r"[\s-]+", "-", slug)
 
     def _seed_default_problems(self):
-        """Seeds initial competitive programming problems."""
-        two_sum_code = """#include <iostream>
+        """Seeds initial competitive programming problems with skeleton starter code."""
+        
+        two_sum_starter = """#include <iostream>
 #include <vector>
 #include <unordered_map>
 using namespace std;
 
+// Returns the 0-based indices of the two numbers that add up to target
 vector<int> twoSum(const vector<int>& nums, int target) {
-    unordered_map<int, int> seen;
-    for (int i = 0; i < nums.size(); ++i) {
-        int complement = target - nums[i];
-        if (seen.count(complement)) {
-            return {seen[complement], i};
-        }
-        seen[nums[i]] = i;
-    }
+    // TODO: Write your solution here
     return {};
 }
 
 int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+    
     int n, target;
     if (!(cin >> n >> target)) return 0;
-    vector<int> nums(n);
-    for (int i = 0; i < n; ++i) cin >> nums[i];
     
-    vector<int> res = twoSum(nums, target);
-    if (!res.empty()) {
-        cout << res[0] << " " << res[1] << endl;
+    vector<int> nums(n);
+    for (int i = 0; i < n; ++i) {
+        cin >> nums[i];
+    }
+    
+    vector<int> result = twoSum(nums, target);
+    if (!result.empty()) {
+        cout << result[0] << " " << result[1] << endl;
     }
     return 0;
 }
@@ -66,7 +67,7 @@ int main() {
             title="Two Sum",
             description="Given an array of integers `nums` and an integer `target`, return indices of the two numbers such that they add up to `target`.\n\nYou may assume that each input would have exactly one solution, and you may not use the same element twice.",
             difficulty="Easy",
-            starter_code=two_sum_code,
+            starter_code=two_sum_starter,
             constraints=["2 <= nums.length <= 10^4", "-10^9 <= nums[i] <= 10^9", "Exactly one valid answer exists."],
             examples=[
                 {"input": "4 9\n2 7 11 15", "output": "0 1", "explanation": "nums[0] + nums[1] == 9, so return 0 1."}
@@ -78,23 +79,19 @@ int main() {
             ],
         )
 
-        fib_code = """#include <iostream>
-#include <vector>
+        fib_starter = """#include <iostream>
 using namespace std;
 
+// Calculates the nth Fibonacci number F(n)
 int fibonacci(int n) {
-    if (n <= 0) return 0;
-    if (n == 1) return 1;
-    vector<int> dp(n + 1);
-    dp[0] = 0;
-    dp[1] = 1;
-    for (int i = 2; i <= n; ++i) {
-        dp[i] = dp[i - 1] + dp[i - 2];
-    }
-    return dp[n];
+    // TODO: Write your solution here
+    return 0;
 }
 
 int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+    
     int n;
     if (cin >> n) {
         cout << fibonacci(n) << endl;
@@ -106,7 +103,7 @@ int main() {
             title="Fibonacci Number",
             description="The Fibonacci numbers, commonly denoted `F(n)`, form a sequence such that each number is the sum of the two preceding ones, starting from 0 and 1.\n\nGiven `n`, calculate `F(n)`.",
             difficulty="Easy",
-            starter_code=fib_code,
+            starter_code=fib_starter,
             constraints=["0 <= n <= 30"],
             examples=[
                 {"input": "2", "output": "1", "explanation": "F(2) = F(1) + F(0) = 1 + 0 = 1."},
@@ -188,12 +185,10 @@ int main() {
 
         self._submissions[submission_id] = submission
 
-        # Attach to Problem
         problem = self.get_problem(problem_id)
         if problem:
             problem.submissions[submission_id] = submission
 
-        # Attach to Assessment if applicable
         if assessment_id:
             assessment = self.get_assessment(assessment_id)
             if assessment and question_id and question_id in assessment.questions:
@@ -211,10 +206,9 @@ int main() {
         problem = self.get_problem(problem_id_or_slug)
         if not problem:
             return []
-        # Return sorted latest first
         return sorted(problem.submissions.values(), key=lambda s: s.submitted_at, reverse=True)
 
-    # --- Assessment Operations (Preserved) ---
+    # --- Assessment Operations ---
 
     def create_assessment(self, title: str, description: str = "") -> Assessment:
         assessment_id = f"asm_{uuid.uuid4().hex[:8]}"
