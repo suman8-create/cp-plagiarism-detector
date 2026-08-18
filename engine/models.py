@@ -1,27 +1,13 @@
 # engine/models.py
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
+from enum import Enum
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
-# --- Test Case & Execution Entities ---
-
-@dataclass
-class TestCase:
-    """Input and expected output pairs for code execution."""
-    input_data: str
-    expected_output: str
-    is_sample: bool = False       # True if visible in problem description
-    is_hidden: bool = True        # True if used for final submission evaluation
-    explanation: Optional[str] = None
-
-
-@dataclass
-class ExecutionResult:
-    """Runtime result of compiling and testing code against problem test cases."""
-    status: str = "Pending"       # "Accepted", "Wrong Answer", "Compilation Error", "Time Limit Exceeded", "Runtime Error"
+class ExecutionResult(BaseModel):
+    status: str = "Pending"  # "Accepted", "Wrong Answer", "Compilation Error", "Time Limit Exceeded", "Runtime Error"
     passed_test_cases: int = 0
     total_test_cases: int = 0
     execution_time_ms: float = 0.0
@@ -30,78 +16,108 @@ class ExecutionResult:
     error_message: Optional[str] = None
 
 
-# --- Domain Entity Classes ---
+class TestCase(BaseModel):
+    input_data: str
+    expected_output: str
+    is_sample: bool = False
+    is_hidden: bool = True
+    explanation: Optional[str] = None
 
-@dataclass
-class Submission:
-    """Represents a code submission for a problem/question."""
+
+class Submission(BaseModel):
     submission_id: str
     problem_id: str
     user_id: str
     user_name: str
-    source_file: str
+    source_file: str = "solution.cpp"
     source_code: str
-    submitted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     assessment_id: Optional[str] = None
     question_id: Optional[str] = None
-    execution_result: ExecutionResult = field(default_factory=ExecutionResult)
-    # Integrity & Plagiarism Metadata
-    filtered_hashes: set[int] = field(default_factory=set)
-    ai_confidence_score: float = 0.0
-    ai_flags: List[str] = field(default_factory=list)
+    execution_result: ExecutionResult = Field(default_factory=ExecutionResult)
+    submitted_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-@dataclass
-class Problem:
-    """Represents a standalone coding problem with test cases and starter template."""
+class Problem(BaseModel):
     problem_id: str
     title: str
     slug: str
     description: str
-    difficulty: str = "Medium"     # "Easy", "Medium", "Hard"
+    difficulty: str = "Medium"  # "Easy", "Medium", "Hard"
     time_limit_sec: float = 2.0
     memory_limit_mb: int = 256
     starter_code: str = ""
-    constraints: List[str] = field(default_factory=list)
-    examples: List[Dict[str, str]] = field(default_factory=list)
-    test_cases: List[TestCase] = field(default_factory=list)
-    submissions: Dict[str, Submission] = field(default_factory=dict)
-    boilerplate_hashes: set[int] = field(default_factory=set)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    constraints: List[str] = Field(default_factory=list)
+    examples: List[Dict[str, str]] = Field(default_factory=list)
+    test_cases: List[TestCase] = Field(default_factory=list)
+    submissions: Dict[str, Submission] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-@dataclass
-class Question:
-    """Legacy question container within an assessment (linked to Problem architecture)."""
+class ContestStatus(str, Enum):
+    UPCOMING = "UPCOMING"
+    ACTIVE = "ACTIVE"
+    ENDED = "ENDED"
+
+
+class ContestParticipant(BaseModel):
+    user_id: str
+    user_name: str
+    registered_at: datetime = Field(default_factory=datetime.utcnow)
+    score: int = 0
+    penalty_time_sec: float = 0.0
+    solved_problem_ids: List[str] = Field(default_factory=list)
+
+
+class Contest(BaseModel):
+    contest_id: str
+    title: str
+    description: str = ""
+    start_time: datetime
+    duration_minutes: int = 90
+    problem_ids: List[str] = Field(default_factory=list)
+    participants: Dict[str, ContestParticipant] = Field(default_factory=dict)
+    submissions: Dict[str, Submission] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    @property
+    def end_time(self) -> datetime:
+        return self.start_time + timedelta(minutes=self.duration_minutes)
+
+    @property
+    def status(self) -> ContestStatus:
+        now = datetime.utcnow()
+        if now < self.start_time:
+            return ContestStatus.UPCOMING
+        elif now > self.end_time:
+            return ContestStatus.ENDED
+        return ContestStatus.ACTIVE
+
+
+class Student(BaseModel):
+    student_id: str
+    name: str
+    submission_ids: List[str] = Field(default_factory=list)
+
+
+class Question(BaseModel):
     question_id: str
     assessment_id: str
     title: str
     description: str = ""
-    submissions: Dict[str, Submission] = field(default_factory=dict)
-    boilerplate_hashes: set[int] = field(default_factory=set)
+    submissions: Dict[str, Submission] = Field(default_factory=dict)
     last_analyzed_at: Optional[datetime] = None
 
 
-@dataclass
-class Student:
-    """Represents a student or user in the platform."""
-    student_id: str
-    name: str
-    submission_ids: List[str] = field(default_factory=list)
-
-
-@dataclass
-class Assessment:
-    """Assessment/Contest container."""
+class Assessment(BaseModel):
     assessment_id: str
     title: str
     description: str = ""
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    questions: Dict[str, Question] = field(default_factory=dict)
-    students: Dict[str, Student] = field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    questions: Dict[str, Question] = Field(default_factory=dict)
+    students: Dict[str, Student] = Field(default_factory=dict)
 
 
-# --- Pydantic Schemas for REST API ---
+# --- API Request & Response Schemas ---
 
 class TestCaseSchema(BaseModel):
     input_data: str
@@ -115,9 +131,9 @@ class CreateProblemRequest(BaseModel):
     description: str
     difficulty: Optional[str] = "Medium"
     starter_code: Optional[str] = ""
-    constraints: Optional[List[str]] = []
-    examples: Optional[List[Dict[str, str]]] = []
-    test_cases: Optional[List[TestCaseSchema]] = []
+    constraints: Optional[List[str]] = Field(default_factory=list)
+    examples: Optional[List[Dict[str, str]]] = Field(default_factory=list)
+    test_cases: Optional[List[TestCaseSchema]] = Field(default_factory=list)
 
 
 class ProblemSummaryResponse(BaseModel):
@@ -143,12 +159,39 @@ class ProblemDetailResponse(BaseModel):
     submission_count: int
 
 
-class CreateAssessmentRequest(BaseModel):
+class CreateContestRequest(BaseModel):
     title: str
     description: Optional[str] = ""
+    start_time_offset_min: int = 0
+    duration_minutes: int = 90
+    problem_ids: Optional[List[str]] = Field(default_factory=list)
 
 
-class CreateQuestionRequest(BaseModel):
+class ContestSummaryResponse(BaseModel):
+    contest_id: str
+    title: str
+    description: str
+    status: str
+    start_time: str
+    end_time: str
+    duration_minutes: int
+    problem_count: int
+    participant_count: int
+
+
+class ContestDetailResponse(BaseModel):
+    contest_id: str
+    title: str
+    description: str
+    status: str
+    start_time: str
+    end_time: str
+    duration_minutes: int
+    problems: List[ProblemSummaryResponse]
+    participant_count: int
+
+
+class CreateAssessmentRequest(BaseModel):
     title: str
     description: Optional[str] = ""
 
@@ -161,6 +204,11 @@ class AssessmentSummaryResponse(BaseModel):
     question_count: int
     student_count: int
     total_submissions: int
+
+
+class CreateQuestionRequest(BaseModel):
+    title: str
+    description: Optional[str] = ""
 
 
 class QuestionSummaryResponse(BaseModel):

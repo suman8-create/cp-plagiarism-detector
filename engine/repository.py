@@ -2,9 +2,12 @@
 
 import re
 import uuid
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from engine.models import (
     Assessment,
+    Contest,
+    ContestParticipant,
     ExecutionResult,
     Problem,
     Question,
@@ -16,7 +19,7 @@ from engine.models import (
 
 class AssessmentRepository:
     """
-    Unified in-memory data store for Problems, Contests/Assessments,
+    Unified in-memory data store for Problems, Contests,
     Submissions, and Test Cases.
     """
 
@@ -24,15 +27,15 @@ class AssessmentRepository:
         self._assessments: Dict[str, Assessment] = {}
         self._problems: Dict[str, Problem] = {}
         self._submissions: Dict[str, Submission] = {}
+        self._contests: Dict[str, Contest] = {}
         self._seed_default_problems()
+        self._seed_default_contest()
 
     def _generate_slug(self, title: str) -> str:
         slug = re.sub(r"[^a-zA-Z0-9\s-]", "", title).strip().lower()
         return re.sub(r"[\s-]+", "-", slug)
 
     def _seed_default_problems(self):
-        """Seeds initial competitive programming problems with skeleton starter code."""
-        
         two_sum_starter = """#include <iostream>
 #include <vector>
 #include <unordered_map>
@@ -117,6 +120,54 @@ int main() {
             ],
         )
 
+    def _seed_default_contest(self):
+        """Seeds a sample active contest."""
+        problem_ids = list(self._problems.keys())
+        self.create_contest(
+            title="Weekly CodeSprint #1",
+            description="Official bi-weekly competitive programming challenge. Complete all problems within 90 minutes.",
+            start_time=datetime.utcnow() - timedelta(minutes=15),  # Started 15 mins ago (ACTIVE)
+            duration_minutes=90,
+            problem_ids=problem_ids,
+        )
+
+    # --- Contest Operations (New in Phase 6) ---
+
+    def create_contest(
+        self,
+        title: str,
+        description: str = "",
+        start_time: Optional[datetime] = None,
+        duration_minutes: int = 90,
+        problem_ids: Optional[List[str]] = None,
+    ) -> Contest:
+        contest_id = f"cnt_{uuid.uuid4().hex[:8]}"
+        start = start_time or datetime.utcnow()
+        contest = Contest(
+            contest_id=contest_id,
+            title=title,
+            description=description,
+            start_time=start,
+            duration_minutes=duration_minutes,
+            problem_ids=problem_ids or [],
+        )
+        self._contests[contest_id] = contest
+        return contest
+
+    def get_contest(self, contest_id: str) -> Optional[Contest]:
+        return self._contests.get(contest_id)
+
+    def list_contests(self) -> List[Contest]:
+        return sorted(self._contests.values(), key=lambda c: c.start_time, reverse=True)
+
+    def register_contest_participant(self, contest_id: str, user_id: str, user_name: str) -> Optional[ContestParticipant]:
+        contest = self.get_contest(contest_id)
+        if not contest:
+            return None
+        if user_id not in contest.participants:
+            contest.participants[user_id] = ContestParticipant(user_id=user_id, user_name=user_name)
+        return contest.participants[user_id]
+
     # --- Problem Operations ---
 
     def create_problem(
@@ -169,6 +220,7 @@ int main() {
         execution_result: Optional[ExecutionResult] = None,
         assessment_id: Optional[str] = None,
         question_id: Optional[str] = None,
+        contest_id: Optional[str] = None,
     ) -> Submission:
         submission_id = f"sub_{uuid.uuid4().hex[:8]}"
         submission = Submission(
@@ -189,13 +241,15 @@ int main() {
         if problem:
             problem.submissions[submission_id] = submission
 
-        if assessment_id:
-            assessment = self.get_assessment(assessment_id)
-            if assessment and question_id and question_id in assessment.questions:
-                assessment.questions[question_id].submissions[submission_id] = submission
-                if user_id not in assessment.students:
-                    assessment.students[user_id] = Student(student_id=user_id, name=user_name)
-                assessment.students[user_id].submission_ids.append(submission_id)
+        # Attach to contest if scoped
+        if contest_id and contest_id in self._contests:
+            contest = self._contests[contest_id]
+            contest.submissions[submission_id] = submission
+            if user_id in contest.participants and execution_result and execution_result.status == "Accepted":
+                part = contest.participants[user_id]
+                if problem_id not in part.solved_problem_ids:
+                    part.solved_problem_ids.append(problem_id)
+                    part.score += 100
 
         return submission
 

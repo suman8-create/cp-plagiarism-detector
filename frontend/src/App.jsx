@@ -15,17 +15,19 @@ import {
   ChevronDown, 
   ChevronUp, 
   Layers,
-  Code2
+  Code2,
+  Trophy
 } from 'lucide-react';
 import DiffViewer from './components/DiffViewer';
 import AssessmentDetail from './components/AssessmentDetail';
 import ProblemWorkspace from './components/ProblemWorkspace';
+import ContestHub from './components/ContestHub';
 
 export default function App() {
-  // Navigation State: 'problems' | 'problem_workspace' | 'assessments' | 'assessment_detail' | 'quick_scan'
-  const [currentView, setCurrentView] = useState('problems');
+  // Navigation State: 'contests' | 'problems' | 'problem_workspace' | 'assessments' | 'assessment_detail' | 'quick_scan'
+  const [currentView, setCurrentView] = useState('contests');
   
-  // Problems State
+  // Problems & Contests State
   const [problems, setProblems] = useState([]);
   const [selectedProblemSlug, setSelectedProblemSlug] = useState(null);
   const [loadingProblems, setLoadingProblems] = useState(false);
@@ -182,8 +184,18 @@ export default function App() {
           {/* Navigation View Switcher */}
           <div className="flex items-center space-x-1.5 bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs">
             <button
+              onClick={() => setCurrentView('contests')}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                currentView === 'contests'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Contests
+            </button>
+            <button
               onClick={() => { setCurrentView('problems'); setSelectedProblemSlug(null); }}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                 currentView === 'problems' || currentView === 'problem_workspace'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
@@ -193,7 +205,7 @@ export default function App() {
             </button>
             <button
               onClick={() => { setCurrentView('assessments'); setSelectedAssessment(null); }}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                 currentView === 'assessments' || currentView === 'assessment_detail'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
@@ -203,7 +215,7 @@ export default function App() {
             </button>
             <button
               onClick={() => setCurrentView('quick_scan')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                 currentView === 'quick_scan'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
@@ -214,7 +226,17 @@ export default function App() {
           </div>
         </div>
 
-        {/* View 1: Problem Coding Workspace */}
+        {/* View 1: Contest Hub */}
+        {currentView === 'contests' && (
+          <ContestHub
+            onSelectProblem={(slug) => {
+              setSelectedProblemSlug(slug);
+              setCurrentView('problem_workspace');
+            }}
+          />
+        )}
+
+        {/* View 2: Problem Coding Workspace */}
         {currentView === 'problem_workspace' && selectedProblemSlug && (
           <ProblemWorkspace
             problemSlug={selectedProblemSlug}
@@ -222,7 +244,7 @@ export default function App() {
           />
         )}
 
-        {/* View 2: Problems Catalog List */}
+        {/* View 3: Problems Catalog List */}
         {currentView === 'problems' && (
           <div className="space-y-5">
             <div>
@@ -265,7 +287,7 @@ export default function App() {
           </div>
         )}
 
-        {/* View 3: Assessment Detail View */}
+        {/* View 4: Assessment Detail View */}
         {currentView === 'assessment_detail' && selectedAssessment && (
           <AssessmentDetail
             assessment={selectedAssessment}
@@ -276,7 +298,7 @@ export default function App() {
           />
         )}
 
-        {/* View 4: Assessments Workspace */}
+        {/* View 5: Assessments Workspace */}
         {currentView === 'assessments' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -349,7 +371,7 @@ export default function App() {
           </div>
         )}
 
-        {/* View 5: Ad-Hoc / Quick Scan View */}
+        {/* View 6: Ad-Hoc / Quick Scan View */}
         {currentView === 'quick_scan' && (
           <div className="space-y-6">
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 md:p-8 space-y-4">
