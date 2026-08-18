@@ -1,9 +1,13 @@
 # engine/models.py
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
+
+
+def get_utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class ExecutionResult(BaseModel):
@@ -31,10 +35,11 @@ class Submission(BaseModel):
     user_name: str
     source_file: str = "solution.cpp"
     source_code: str
+    contest_id: Optional[str] = None
     assessment_id: Optional[str] = None
     question_id: Optional[str] = None
     execution_result: ExecutionResult = Field(default_factory=ExecutionResult)
-    submitted_at: datetime = Field(default_factory=datetime.utcnow)
+    submitted_at: datetime = Field(default_factory=get_utc_now)
 
 
 class Problem(BaseModel):
@@ -50,22 +55,23 @@ class Problem(BaseModel):
     examples: List[Dict[str, str]] = Field(default_factory=list)
     test_cases: List[TestCase] = Field(default_factory=list)
     submissions: Dict[str, Submission] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_utc_now)
 
 
 class ContestStatus(str, Enum):
-    UPCOMING = "UPCOMING"
-    ACTIVE = "ACTIVE"
-    ENDED = "ENDED"
+    UPCOMING = "Upcoming"
+    LIVE = "Live"
+    FINISHED = "Finished"
 
 
 class ContestParticipant(BaseModel):
     user_id: str
     user_name: str
-    registered_at: datetime = Field(default_factory=datetime.utcnow)
+    registered_at: datetime = Field(default_factory=get_utc_now)
     score: int = 0
     penalty_time_sec: float = 0.0
     solved_problem_ids: List[str] = Field(default_factory=list)
+    solved_timestamps: Dict[str, str] = Field(default_factory=dict)  # problem_id -> ISO string
 
 
 class Contest(BaseModel):
@@ -77,7 +83,7 @@ class Contest(BaseModel):
     problem_ids: List[str] = Field(default_factory=list)
     participants: Dict[str, ContestParticipant] = Field(default_factory=dict)
     submissions: Dict[str, Submission] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_utc_now)
 
     @property
     def end_time(self) -> datetime:
@@ -85,12 +91,15 @@ class Contest(BaseModel):
 
     @property
     def status(self) -> ContestStatus:
-        now = datetime.utcnow()
-        if now < self.start_time:
+        now = get_utc_now()
+        st = self.start_time if self.start_time.tzinfo else self.start_time.replace(tzinfo=timezone.utc)
+        et = self.end_time if self.end_time.tzinfo else self.end_time.replace(tzinfo=timezone.utc)
+
+        if now < st:
             return ContestStatus.UPCOMING
-        elif now > self.end_time:
-            return ContestStatus.ENDED
-        return ContestStatus.ACTIVE
+        elif now > et:
+            return ContestStatus.FINISHED
+        return ContestStatus.LIVE
 
 
 class Student(BaseModel):
@@ -112,7 +121,7 @@ class Assessment(BaseModel):
     assessment_id: str
     title: str
     description: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_utc_now)
     questions: Dict[str, Question] = Field(default_factory=dict)
     students: Dict[str, Student] = Field(default_factory=dict)
 
@@ -142,6 +151,7 @@ class ProblemSummaryResponse(BaseModel):
     slug: str
     difficulty: str
     submission_count: int
+    is_solved: bool = False
 
 
 class ProblemDetailResponse(BaseModel):
@@ -189,6 +199,10 @@ class ContestDetailResponse(BaseModel):
     duration_minutes: int
     problems: List[ProblemSummaryResponse]
     participant_count: int
+    user_registered: bool = False
+    user_score: int = 0
+    user_solved_count: int = 0
+    user_penalty_minutes: float = 0.0
 
 
 class CreateAssessmentRequest(BaseModel):

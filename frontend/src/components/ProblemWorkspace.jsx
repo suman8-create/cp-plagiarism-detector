@@ -13,14 +13,15 @@ import {
   Cpu, 
   RotateCcw,
   RefreshCw,
-  History
+  History,
+  Trophy
 } from 'lucide-react';
 
-export default function ProblemWorkspace({ problemSlug, onBack }) {
+export default function ProblemWorkspace({ problemSlug, contestId, contestTitle, onBack }) {
   const [problem, setProblem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [code, setCode] = useState('');
-  const [activeTab, setActiveTab] = useState('description'); // 'description' | 'submissions'
+  const [activeTab, setActiveTab] = useState('description');
   const [submissionsList, setSubmissionsList] = useState([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
   const [selectedTestCaseIndex, setSelectedTestCaseIndex] = useState(0);
@@ -124,7 +125,7 @@ export default function ProblemWorkspace({ problemSlug, onBack }) {
     setIsSubmitting(true);
     setConsoleOutput({
       status: 'Evaluating Solution',
-      message: 'Running against full test case suite & persisting submission...'
+      message: 'Running against full test case suite...'
     });
 
     try {
@@ -134,7 +135,8 @@ export default function ProblemWorkspace({ problemSlug, onBack }) {
         body: JSON.stringify({ 
           source_code: code,
           user_id: 'std_demo_101',
-          user_name: 'Alex Developer'
+          user_name: 'Alex Developer',
+          contest_id: contestId || null
         }),
       });
 
@@ -156,7 +158,6 @@ export default function ProblemWorkspace({ problemSlug, onBack }) {
         submitted_at: data.submitted_at,
       });
 
-      // Refresh submissions history list
       fetchSubmissions();
     } catch (err) {
       setConsoleOutput({
@@ -209,7 +210,7 @@ export default function ProblemWorkspace({ problemSlug, onBack }) {
       <div className="p-16 text-center text-xs text-slate-500 bg-slate-900/40 rounded-2xl border border-slate-800 space-y-3">
         <p>Problem statement not found.</p>
         <button onClick={onBack} className="text-indigo-400 hover:underline cursor-pointer">
-          Return to problem list
+          Return to previous view
         </button>
       </div>
     );
@@ -217,7 +218,7 @@ export default function ProblemWorkspace({ problemSlug, onBack }) {
 
   return (
     <div className="space-y-4">
-      {/* Top Bar */}
+      {/* Top Bar with Contest Context */}
       <div className="flex items-center justify-between bg-slate-900 border border-slate-800 px-4 py-3 rounded-xl">
         <div className="flex items-center space-x-3">
           <button
@@ -232,6 +233,12 @@ export default function ProblemWorkspace({ problemSlug, onBack }) {
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${getDifficultyBadge(problem.difficulty)}`}>
                 {problem.difficulty}
               </span>
+              {contestTitle && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-indigo-500/10 text-indigo-400 border-indigo-500/30 flex items-center space-x-1">
+                  <Trophy className="w-3 h-3 text-amber-400" />
+                  <span>{contestTitle}</span>
+                </span>
+              )}
             </div>
           </div>
         </div>

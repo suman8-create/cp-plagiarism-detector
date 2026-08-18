@@ -2,7 +2,7 @@
 
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from engine.models import (
     Assessment,
@@ -29,7 +29,7 @@ class AssessmentRepository:
         self._submissions: Dict[str, Submission] = {}
         self._contests: Dict[str, Contest] = {}
         self._seed_default_problems()
-        self._seed_default_contest()
+        self._seed_default_contests()
 
     def _generate_slug(self, title: str) -> str:
         slug = re.sub(r"[^a-zA-Z0-9\s-]", "", title).strip().lower()
@@ -120,18 +120,31 @@ int main() {
             ],
         )
 
-    def _seed_default_contest(self):
-        """Seeds a sample active contest."""
-        problem_ids = list(self._problems.keys())
-        self.create_contest(
-            title="Weekly CodeSprint #1",
-            description="Official bi-weekly competitive programming challenge. Complete all problems within 90 minutes.",
-            start_time=datetime.utcnow() - timedelta(minutes=15),  # Started 15 mins ago (ACTIVE)
+    def _seed_default_contests(self):
+        """Seeds initial contests: Live and Upcoming."""
+        all_prob_ids = list(self._problems.keys())
+        
+        # 1. Live Contest
+        live_contest = self.create_contest(
+            title="Bi-Weekly Contest #1",
+            description="Live competitive programming contest. Solve all algorithmic challenges within 90 minutes.",
+            start_time=datetime.now(timezone.utc) - timedelta(minutes=15),
             duration_minutes=90,
-            problem_ids=problem_ids,
+            problem_ids=all_prob_ids,
+        )
+        # Pre-register default demo student
+        self.register_contest_participant(live_contest.contest_id, "std_demo_101", "Alex Developer")
+
+        # 2. Upcoming Contest
+        self.create_contest(
+            title="Grand Algorithms Championship",
+            description="National coding speed challenge. Timed rating contest with full AST similarity auditing.",
+            start_time=datetime.now(timezone.utc) + timedelta(hours=24),
+            duration_minutes=120,
+            problem_ids=all_prob_ids,
         )
 
-    # --- Contest Operations (New in Phase 6) ---
+    # --- Contest Operations ---
 
     def create_contest(
         self,
@@ -142,14 +155,14 @@ int main() {
         problem_ids: Optional[List[str]] = None,
     ) -> Contest:
         contest_id = f"cnt_{uuid.uuid4().hex[:8]}"
-        start = start_time or datetime.utcnow()
+        start = start_time or datetime.now(timezone.utc)
         contest = Contest(
             contest_id=contest_id,
             title=title,
             description=description,
             start_time=start,
             duration_minutes=duration_minutes,
-            problem_ids=problem_ids or [],
+            problem_ids=problem_ids or list(self._problems.keys()),
         )
         self._contests[contest_id] = contest
         return contest
@@ -223,6 +236,8 @@ int main() {
         contest_id: Optional[str] = None,
     ) -> Submission:
         submission_id = f"sub_{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc)
+
         submission = Submission(
             submission_id=submission_id,
             problem_id=problem_id,
@@ -230,26 +245,38 @@ int main() {
             user_name=user_name,
             source_file=source_file,
             source_code=source_code,
+            contest_id=contest_id,
             assessment_id=assessment_id,
             question_id=question_id,
             execution_result=execution_result or ExecutionResult(),
+            submitted_at=now,
         )
 
         self._submissions[submission_id] = submission
 
+        # Attach to Problem
         problem = self.get_problem(problem_id)
         if problem:
             problem.submissions[submission_id] = submission
 
-        # Attach to contest if scoped
+        # Attach to Contest if scoped and update score/penalty
         if contest_id and contest_id in self._contests:
             contest = self._contests[contest_id]
             contest.submissions[submission_id] = submission
-            if user_id in contest.participants and execution_result and execution_result.status == "Accepted":
-                part = contest.participants[user_id]
+
+            # Ensure participant is registered
+            if user_id not in contest.participants:
+                contest.participants[user_id] = ContestParticipant(user_id=user_id, user_name=user_name)
+            
+            part = contest.participants[user_id]
+            if execution_result and execution_result.status == "Accepted":
                 if problem_id not in part.solved_problem_ids:
                     part.solved_problem_ids.append(problem_id)
                     part.score += 100
+                    part.solved_timestamps[problem_id] = now.isoformat()
+                    # Calculate minutes elapsed from contest start
+                    elapsed_min = max(0.0, (now - contest.start_time).total_seconds() / 60.0)
+                    part.penalty_time_sec += elapsed_min * 60.0
 
         return submission
 

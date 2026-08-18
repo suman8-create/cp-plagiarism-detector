@@ -2,8 +2,9 @@
 
 import io
 import zipfile
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -12,7 +13,11 @@ from engine.forensics import LLMForensicEngine
 from engine.runner import CppExecutionEngine
 from engine.models import (
     AssessmentSummaryResponse,
+    ContestDetailResponse,
+    ContestStatus,
+    ContestSummaryResponse,
     CreateAssessmentRequest,
+    CreateContestRequest,
     CreateProblemRequest,
     CreateQuestionRequest,
     ProblemDetailResponse,
@@ -26,7 +31,7 @@ from engine.repository import AssessmentRepository
 app = FastAPI(
     title="Code Assessment & Integrity Platform API",
     description="Competitive coding platform with integrated AST plagiarism detector & LLM forensic engine",
-    version="2.3.0",
+    version="2.5.0",
 )
 
 detector_engine = PlagiarismDetector()
@@ -47,8 +52,9 @@ app.add_middleware(
 
 class CodeRunRequest(BaseModel):
     source_code: str
-    user_id: Optional[str] = "guest_user"
-    user_name: Optional[str] = "Anonymous"
+    user_id: Optional[str] = "std_demo_101"
+    user_name: Optional[str] = "Alex Developer"
+    contest_id: Optional[str] = None
 
 
 class CodeExecutionResponse(BaseModel):
@@ -120,7 +126,7 @@ def health_check():
     return {
         "status": "online",
         "service": "Code Assessment & Integrity Platform",
-        "version": "2.3.0"
+        "version": "2.5.0",
     }
 
 
@@ -142,6 +148,118 @@ def get_template_stats():
     )
 
 
+# --- Contest API Endpoints ---
+
+@app.get("/api/contests", response_model=List[ContestSummaryResponse])
+def list_contests():
+    contests = repo.list_contests()
+    return [
+        ContestSummaryResponse(
+            contest_id=c.contest_id,
+            title=c.title,
+            description=c.description,
+            status=c.status.value,
+            start_time=c.start_time.isoformat(),
+            end_time=c.end_time.isoformat(),
+            duration_minutes=c.duration_minutes,
+            problem_count=len(c.problem_ids),
+            participant_count=len(c.participants),
+        )
+        for c in contests
+    ]
+
+
+@app.get("/api/contests/{contest_id}", response_model=ContestDetailResponse)
+def get_contest(contest_id: str, user_id: str = "std_demo_101"):
+    c = repo.get_contest(contest_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Contest not found")
+
+    is_registered = user_id in c.participants
+    participant = c.participants.get(user_id)
+    user_solved_ids = set(participant.solved_problem_ids) if participant else set()
+
+    problems_list = []
+    for pid in c.problem_ids:
+        prob = repo.get_problem(pid)
+        if prob:
+            problems_list.append(
+                ProblemSummaryResponse(
+                    problem_id=prob.problem_id,
+                    title=prob.title,
+                    slug=prob.slug,
+                    difficulty=prob.difficulty,
+                    submission_count=len(prob.submissions),
+                    is_solved=(prob.problem_id in user_solved_ids),
+                )
+            )
+
+    return ContestDetailResponse(
+        contest_id=c.contest_id,
+        title=c.title,
+        description=c.description,
+        status=c.status.value,
+        start_time=c.start_time.isoformat(),
+        end_time=c.end_time.isoformat(),
+        duration_minutes=c.duration_minutes,
+        problems=problems_list,
+        participant_count=len(c.participants),
+        user_registered=is_registered,
+        user_score=participant.score if participant else 0,
+        user_solved_count=len(user_solved_ids),
+        user_penalty_minutes=round(participant.penalty_time_sec / 60.0, 1) if participant else 0.0,
+    )
+
+
+@app.post("/api/contests", response_model=ContestDetailResponse)
+def create_contest(req: CreateContestRequest):
+    start = datetime.now(timezone.utc) + timedelta(minutes=req.start_time_offset_min)
+    contest = repo.create_contest(
+        title=req.title,
+        description=req.description or "",
+        start_time=start,
+        duration_minutes=req.duration_minutes,
+        problem_ids=req.problem_ids or list(repo._problems.keys()),
+    )
+
+    problems_list = [
+        ProblemSummaryResponse(
+            problem_id=p.problem_id,
+            title=p.title,
+            slug=p.slug,
+            difficulty=p.difficulty,
+            submission_count=len(p.submissions),
+            is_solved=False,
+        )
+        for pid in contest.problem_ids
+        if (p := repo.get_problem(pid))
+    ]
+
+    return ContestDetailResponse(
+        contest_id=contest.contest_id,
+        title=contest.title,
+        description=contest.description,
+        status=contest.status.value,
+        start_time=contest.start_time.isoformat(),
+        end_time=contest.end_time.isoformat(),
+        duration_minutes=contest.duration_minutes,
+        problems=problems_list,
+        participant_count=0,
+        user_registered=False,
+        user_score=0,
+        user_solved_count=0,
+        user_penalty_minutes=0.0,
+    )
+
+
+@app.post("/api/contests/{contest_id}/register")
+def register_for_contest(contest_id: str, user_id: str = "std_demo_101", user_name: str = "Alex Developer"):
+    participant = repo.register_contest_participant(contest_id, user_id, user_name)
+    if not participant:
+        raise HTTPException(status_code=404, detail="Contest not found")
+    return {"message": "Successfully registered for contest", "user_id": user_id}
+
+
 # --- Problem Platform Endpoints ---
 
 @app.get("/api/problems", response_model=List[ProblemSummaryResponse])
@@ -154,6 +272,7 @@ def list_problems():
             slug=p.slug,
             difficulty=p.difficulty,
             submission_count=len(p.submissions),
+            is_solved=False,
         )
         for p in problems
     ]
@@ -277,20 +396,31 @@ def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
     if not problem:
         raise HTTPException(status_code=404, detail="Problem not found")
 
-    # 1. Execute against full test case suite
+    # Contest Gating: If contest_id is provided, verify contest is LIVE
+    if req.contest_id:
+        contest = repo.get_contest(req.contest_id)
+        if not contest:
+            raise HTTPException(status_code=404, detail="Contest not found")
+        if contest.status == ContestStatus.FINISHED:
+            raise HTTPException(status_code=400, detail="Contest has ended. Submissions are closed.")
+        if contest.status == ContestStatus.UPCOMING:
+            raise HTTPException(status_code=400, detail="Contest has not started yet.")
+
+    # 1. Run full test case suite
     result = exec_runner.execute(
         source_code=req.source_code,
         test_cases=problem.test_cases,
         time_limit_sec=problem.time_limit_sec,
     )
 
-    # 2. Persist submission in repository
+    # 2. Persist submission
     submission = repo.save_submission(
         problem_id=problem.problem_id,
-        user_id=req.user_id or "guest_user",
-        user_name=req.user_name or "Anonymous",
+        user_id=req.user_id or "std_demo_101",
+        user_name=req.user_name or "Alex Developer",
         source_code=req.source_code,
         execution_result=result,
+        contest_id=req.contest_id,
     )
 
     return CodeExecutionResponse(
@@ -471,108 +601,3 @@ async def check_plagiarism(files: List[UploadFile] = File(...)):
         file_boilerplate_spans=formatted_boilerplate_spans,
         forensics=forensics_data,
     )
-# (Add Contest Routes)
-
-from datetime import datetime, timedelta
-from engine.models import (
-    ContestDetailResponse,
-    ContestSummaryResponse,
-    CreateContestRequest,
-)
-
-# --- Contest API Endpoints ---
-
-@app.get("/api/contests", response_model=List[ContestSummaryResponse])
-def list_contests():
-    contests = repo.list_contests()
-    return [
-        ContestSummaryResponse(
-            contest_id=c.contest_id,
-            title=c.title,
-            description=c.description,
-            status=c.status.value,
-            start_time=c.start_time.isoformat(),
-            end_time=c.end_time.isoformat(),
-            duration_minutes=c.duration_minutes,
-            problem_count=len(c.problem_ids),
-            participant_count=len(c.participants),
-        )
-        for c in contests
-    ]
-
-
-@app.get("/api/contests/{contest_id}", response_model=ContestDetailResponse)
-def get_contest(contest_id: str):
-    c = repo.get_contest(contest_id)
-    if not c:
-        raise HTTPException(status_code=404, detail="Contest not found")
-
-    problems_list = []
-    for pid in c.problem_ids:
-        prob = repo.get_problem(pid)
-        if prob:
-            problems_list.append(
-                ProblemSummaryResponse(
-                    problem_id=prob.problem_id,
-                    title=prob.title,
-                    slug=prob.slug,
-                    difficulty=prob.difficulty,
-                    submission_count=len(prob.submissions),
-                )
-            )
-
-    return ContestDetailResponse(
-        contest_id=c.contest_id,
-        title=c.title,
-        description=c.description,
-        status=c.status.value,
-        start_time=c.start_time.isoformat(),
-        end_time=c.end_time.isoformat(),
-        duration_minutes=c.duration_minutes,
-        problems=problems_list,
-        participant_count=len(c.participants),
-    )
-
-
-@app.post("/api/contests", response_model=ContestDetailResponse)
-def create_contest(req: CreateContestRequest):
-    start = datetime.utcnow() + timedelta(minutes=req.start_time_offset_min)
-    contest = repo.create_contest(
-        title=req.title,
-        description=req.description or "",
-        start_time=start,
-        duration_minutes=req.duration_minutes,
-        problem_ids=req.problem_ids or list(repo._problems.keys()),
-    )
-
-    problems_list = [
-        ProblemSummaryResponse(
-            problem_id=p.problem_id,
-            title=p.title,
-            slug=p.slug,
-            difficulty=p.difficulty,
-            submission_count=len(p.submissions),
-        )
-        for pid in contest.problem_ids
-        if (p := repo.get_problem(pid))
-    ]
-
-    return ContestDetailResponse(
-        contest_id=contest.contest_id,
-        title=contest.title,
-        description=contest.description,
-        status=contest.status.value,
-        start_time=contest.start_time.isoformat(),
-        end_time=contest.end_time.isoformat(),
-        duration_minutes=contest.duration_minutes,
-        problems=problems_list,
-        participant_count=0,
-    )
-
-
-@app.post("/api/contests/{contest_id}/register")
-def register_for_contest(contest_id: str, user_id: str = "std_demo_101", user_name: str = "Alex Developer"):
-    participant = repo.register_contest_participant(contest_id, user_id, user_name)
-    if not participant:
-        raise HTTPException(status_code=404, detail="Contest not found")
-    return {"message": "Successfully registered for contest", "user_id": user_id}

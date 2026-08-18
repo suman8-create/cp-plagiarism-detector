@@ -14,9 +14,7 @@ import {
   Bot, 
   ChevronDown, 
   ChevronUp, 
-  Layers,
-  Code2,
-  Trophy
+  Layers
 } from 'lucide-react';
 import DiffViewer from './components/DiffViewer';
 import AssessmentDetail from './components/AssessmentDetail';
@@ -24,12 +22,13 @@ import ProblemWorkspace from './components/ProblemWorkspace';
 import ContestHub from './components/ContestHub';
 
 export default function App() {
-  // Navigation State: 'contests' | 'problems' | 'problem_workspace' | 'assessments' | 'assessment_detail' | 'quick_scan'
   const [currentView, setCurrentView] = useState('contests');
   
   // Problems & Contests State
   const [problems, setProblems] = useState([]);
   const [selectedProblemSlug, setSelectedProblemSlug] = useState(null);
+  const [activeContestId, setActiveContestId] = useState(null);
+  const [activeContestTitle, setActiveContestTitle] = useState(null);
   const [loadingProblems, setLoadingProblems] = useState(false);
 
   // Assessments State
@@ -184,7 +183,7 @@ export default function App() {
           {/* Navigation View Switcher */}
           <div className="flex items-center space-x-1.5 bg-slate-900 border border-slate-800 p-1 rounded-xl text-xs">
             <button
-              onClick={() => setCurrentView('contests')}
+              onClick={() => { setCurrentView('contests'); setSelectedProblemSlug(null); setActiveContestId(null); }}
               className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                 currentView === 'contests'
                   ? 'bg-indigo-600 text-white shadow-sm'
@@ -194,7 +193,7 @@ export default function App() {
               Contests
             </button>
             <button
-              onClick={() => { setCurrentView('problems'); setSelectedProblemSlug(null); }}
+              onClick={() => { setCurrentView('problems'); setSelectedProblemSlug(null); setActiveContestId(null); }}
               className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
                 currentView === 'problems' || currentView === 'problem_workspace'
                   ? 'bg-indigo-600 text-white shadow-sm'
@@ -229,8 +228,10 @@ export default function App() {
         {/* View 1: Contest Hub */}
         {currentView === 'contests' && (
           <ContestHub
-            onSelectProblem={(slug) => {
+            onSelectContestProblem={(slug, cid, title) => {
               setSelectedProblemSlug(slug);
+              setActiveContestId(cid);
+              setActiveContestTitle(title);
               setCurrentView('problem_workspace');
             }}
           />
@@ -240,7 +241,16 @@ export default function App() {
         {currentView === 'problem_workspace' && selectedProblemSlug && (
           <ProblemWorkspace
             problemSlug={selectedProblemSlug}
-            onBack={() => { setCurrentView('problems'); setSelectedProblemSlug(null); fetchProblems(); }}
+            contestId={activeContestId}
+            contestTitle={activeContestTitle}
+            onBack={() => {
+              if (activeContestId) {
+                setCurrentView('contests');
+              } else {
+                setCurrentView('problems');
+              }
+              setSelectedProblemSlug(null);
+            }}
           />
         )}
 
@@ -261,7 +271,7 @@ export default function App() {
                 {problems.map((prob, idx) => (
                   <div
                     key={prob.problem_id}
-                    onClick={() => { setSelectedProblemSlug(prob.slug); setCurrentView('problem_workspace'); }}
+                    onClick={() => { setSelectedProblemSlug(prob.slug); setActiveContestId(null); setCurrentView('problem_workspace'); }}
                     className="p-4 flex items-center justify-between hover:bg-slate-800/40 transition-colors cursor-pointer group"
                   >
                     <div className="flex items-center space-x-3.5">
@@ -292,9 +302,7 @@ export default function App() {
           <AssessmentDetail
             assessment={selectedAssessment}
             onBack={() => { setCurrentView('assessments'); setSelectedAssessment(null); fetchAssessments(); }}
-            onSelectQuestion={(q) => {
-              setCurrentView('quick_scan');
-            }}
+            onSelectQuestion={() => setCurrentView('quick_scan')}
           />
         )}
 
@@ -504,7 +512,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Leaderboard Table */}
+                {/* Plagiarism Comparison Leaderboard */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
                   <div className="p-4 border-b border-slate-800 bg-slate-950/60">
                     <h3 className="font-semibold text-slate-200 text-xs">Plagiarism Comparison Leaderboard</h3>
