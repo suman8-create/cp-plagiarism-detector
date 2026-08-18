@@ -26,7 +26,7 @@ from engine.repository import AssessmentRepository
 app = FastAPI(
     title="Code Assessment & Integrity Platform API",
     description="Competitive coding platform with integrated AST plagiarism detector & LLM forensic engine",
-    version="2.2.0",
+    version="2.3.0",
 )
 
 detector_engine = PlagiarismDetector()
@@ -43,21 +43,36 @@ app.add_middleware(
 )
 
 
-# --- Execution API Schemas ---
+# --- Execution & Submission API Schemas ---
 
 class CodeRunRequest(BaseModel):
     source_code: str
-    custom_input: Optional[str] = None
+    user_id: Optional[str] = "guest_user"
+    user_name: Optional[str] = "Anonymous"
 
 
 class CodeExecutionResponse(BaseModel):
-    status: str                  # "Accepted", "Wrong Answer", "Compilation Error", "Time Limit Exceeded", "Runtime Error"
+    submission_id: Optional[str] = None
+    status: str
     passed_test_cases: int
     total_test_cases: int
     execution_time_ms: float
     stdout: str
     stderr: str
     error_message: Optional[str] = None
+    submitted_at: Optional[str] = None
+
+
+class SubmissionRecordResponse(BaseModel):
+    submission_id: str
+    problem_id: str
+    user_id: str
+    user_name: str
+    status: str
+    passed_test_cases: int
+    total_test_cases: int
+    execution_time_ms: float
+    submitted_at: str
 
 
 # --- Shared / Legacy Response Schemas ---
@@ -105,7 +120,7 @@ def health_check():
     return {
         "status": "online",
         "service": "Code Assessment & Integrity Platform",
-        "version": "2.2.0"
+        "version": "2.3.0"
     }
 
 
@@ -227,7 +242,7 @@ def create_problem(req: CreateProblemRequest):
     )
 
 
-# --- Execution Endpoints (New in Phase 4) ---
+# --- Execution & Submissions Endpoints ---
 
 @app.post("/api/problems/{problem_id_or_slug}/run", response_model=CodeExecutionResponse)
 def run_sample_cases(problem_id_or_slug: str, req: CodeRunRequest):
@@ -262,14 +277,24 @@ def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
     if not problem:
         raise HTTPException(status_code=404, detail="Problem not found")
 
-    # Evaluate against all test cases (sample + hidden)
+    # 1. Execute against full test case suite
     result = exec_runner.execute(
         source_code=req.source_code,
         test_cases=problem.test_cases,
         time_limit_sec=problem.time_limit_sec,
     )
 
+    # 2. Persist submission in repository
+    submission = repo.save_submission(
+        problem_id=problem.problem_id,
+        user_id=req.user_id or "guest_user",
+        user_name=req.user_name or "Anonymous",
+        source_code=req.source_code,
+        execution_result=result,
+    )
+
     return CodeExecutionResponse(
+        submission_id=submission.submission_id,
         status=result.status,
         passed_test_cases=result.passed_test_cases,
         total_test_cases=result.total_test_cases,
@@ -277,7 +302,31 @@ def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
         stdout=result.stdout,
         stderr=result.stderr,
         error_message=result.error_message,
+        submitted_at=submission.submitted_at.isoformat(),
     )
+
+
+@app.get("/api/problems/{problem_id_or_slug}/submissions", response_model=List[SubmissionRecordResponse])
+def get_problem_submissions(problem_id_or_slug: str):
+    problem = repo.get_problem(problem_id_or_slug)
+    if not problem:
+        raise HTTPException(status_code=404, detail="Problem not found")
+
+    submissions = repo.get_problem_submissions(problem.problem_id)
+    return [
+        SubmissionRecordResponse(
+            submission_id=s.submission_id,
+            problem_id=s.problem_id,
+            user_id=s.user_id,
+            user_name=s.user_name,
+            status=s.execution_result.status,
+            passed_test_cases=s.execution_result.passed_test_cases,
+            total_test_cases=s.execution_result.total_test_cases,
+            execution_time_ms=s.execution_result.execution_time_ms,
+            submitted_at=s.submitted_at.isoformat(),
+        )
+        for s in submissions
+    ]
 
 
 # --- Assessment Endpoints (Preserved) ---

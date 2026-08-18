@@ -5,6 +5,7 @@ import uuid
 from typing import Dict, List, Optional
 from engine.models import (
     Assessment,
+    ExecutionResult,
     Problem,
     Question,
     Student,
@@ -22,6 +23,7 @@ class AssessmentRepository:
     def __init__(self):
         self._assessments: Dict[str, Assessment] = {}
         self._problems: Dict[str, Problem] = {}
+        self._submissions: Dict[str, Submission] = {}
         self._seed_default_problems()
 
     def _generate_slug(self, title: str) -> str:
@@ -30,7 +32,6 @@ class AssessmentRepository:
 
     def _seed_default_problems(self):
         """Seeds initial competitive programming problems."""
-        # Problem 1: Two Sum
         two_sum_code = """#include <iostream>
 #include <vector>
 #include <unordered_map>
@@ -77,7 +78,6 @@ int main() {
             ],
         )
 
-        # Problem 2: Fibonacci DP
         fib_code = """#include <iostream>
 #include <vector>
 using namespace std;
@@ -160,7 +160,61 @@ int main() {
     def list_problems(self) -> List[Problem]:
         return list(self._problems.values())
 
-    # --- Assessment Operations (Maintained from Phase 1) ---
+    # --- Submissions Operations ---
+
+    def save_submission(
+        self,
+        problem_id: str,
+        user_id: str,
+        user_name: str,
+        source_code: str,
+        source_file: str = "solution.cpp",
+        execution_result: Optional[ExecutionResult] = None,
+        assessment_id: Optional[str] = None,
+        question_id: Optional[str] = None,
+    ) -> Submission:
+        submission_id = f"sub_{uuid.uuid4().hex[:8]}"
+        submission = Submission(
+            submission_id=submission_id,
+            problem_id=problem_id,
+            user_id=user_id,
+            user_name=user_name,
+            source_file=source_file,
+            source_code=source_code,
+            assessment_id=assessment_id,
+            question_id=question_id,
+            execution_result=execution_result or ExecutionResult(),
+        )
+
+        self._submissions[submission_id] = submission
+
+        # Attach to Problem
+        problem = self.get_problem(problem_id)
+        if problem:
+            problem.submissions[submission_id] = submission
+
+        # Attach to Assessment if applicable
+        if assessment_id:
+            assessment = self.get_assessment(assessment_id)
+            if assessment and question_id and question_id in assessment.questions:
+                assessment.questions[question_id].submissions[submission_id] = submission
+                if user_id not in assessment.students:
+                    assessment.students[user_id] = Student(student_id=user_id, name=user_name)
+                assessment.students[user_id].submission_ids.append(submission_id)
+
+        return submission
+
+    def get_submission(self, submission_id: str) -> Optional[Submission]:
+        return self._submissions.get(submission_id)
+
+    def get_problem_submissions(self, problem_id_or_slug: str) -> List[Submission]:
+        problem = self.get_problem(problem_id_or_slug)
+        if not problem:
+            return []
+        # Return sorted latest first
+        return sorted(problem.submissions.values(), key=lambda s: s.submitted_at, reverse=True)
+
+    # --- Assessment Operations (Preserved) ---
 
     def create_assessment(self, title: str, description: str = "") -> Assessment:
         assessment_id = f"asm_{uuid.uuid4().hex[:8]}"
@@ -198,42 +252,3 @@ int main() {
         if not assessment:
             return None
         return assessment.questions.get(question_id)
-
-    def add_submission(
-        self,
-        assessment_id: Optional[str],
-        question_id: Optional[str],
-        student_id: str,
-        student_name: str,
-        source_file: str,
-        source_code: str,
-        problem_id: Optional[str] = None,
-    ) -> Optional[Submission]:
-        submission_id = f"sub_{uuid.uuid4().hex[:8]}"
-        target_problem_id = problem_id or question_id or "default_problem"
-
-        submission = Submission(
-            submission_id=submission_id,
-            problem_id=target_problem_id,
-            user_id=student_id,
-            user_name=student_name,
-            source_file=source_file,
-            source_code=source_code,
-            assessment_id=assessment_id,
-            question_id=question_id,
-        )
-
-        # Attach to Problem if it exists
-        if target_problem_id in self._problems:
-            self._problems[target_problem_id].submissions[submission_id] = submission
-
-        # Attach to Assessment if context provided
-        if assessment_id:
-            assessment = self.get_assessment(assessment_id)
-            if assessment and question_id and question_id in assessment.questions:
-                assessment.questions[question_id].submissions[submission_id] = submission
-                if student_id not in assessment.students:
-                    assessment.students[student_id] = Student(student_id=student_id, name=student_name)
-                assessment.students[student_id].submission_ids.append(submission_id)
-
-        return submission
