@@ -58,9 +58,13 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
   };
 
   const fetchSubmissions = async () => {
+    if (!currentUser || !currentUser.user_id) {
+      setSubmissionsList([]);
+      return;
+    }
     try {
       setLoadingSubmissions(true);
-      const res = await fetch(`http://127.0.0.1:8000/api/problems/${problemSlug}/submissions`);
+      const res = await fetch(`http://127.0.0.1:8000/api/problems/${problemSlug}/submissions?user_id=${encodeURIComponent(activeUserId)}`);
       if (res.ok) {
         const data = await res.json();
         setSubmissionsList(data);
@@ -76,7 +80,7 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
     startTimeRef.current = Date.now();
     fetchProblem();
     fetchSubmissions();
-  }, [problemSlug]);
+  }, [problemSlug, activeUserId]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Tab') {

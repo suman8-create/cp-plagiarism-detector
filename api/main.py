@@ -446,26 +446,26 @@ def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
 
 
 @app.get("/api/problems/{problem_id_or_slug}/submissions", response_model=List[SubmissionRecordResponse])
-def get_problem_submissions(problem_id_or_slug: str):
-    submissions = repo.get_problem_submissions(problem_id_or_slug)
+def get_problem_submissions(problem_id_or_slug: str, user_id: Optional[str] = None):
+    submissions = repo.get_problem_submissions(problem_id_or_slug, user_id=user_id)
     return [
         SubmissionRecordResponse(
             submission_id=s.submission_id,
             problem_id=s.problem_id,
-            problem_title=s.problem_title,
+            problem_title=s.problem_title or s.problem_id,
             user_id=s.user_id,
             user_name=s.user_name,
             status=s.execution_result.status,
             passed_test_cases=s.execution_result.passed_test_cases,
             total_test_cases=s.execution_result.total_test_cases,
             execution_time_ms=s.execution_result.execution_time_ms,
-            memory_mb=s.execution_result.memory_mb or 46.38,
+            memory_mb=getattr(s.execution_result, "memory_mb", 46.38) or 46.38,
             time_taken_seconds=s.time_taken_seconds,
             source_code=s.source_code,
             error_message=s.execution_result.error_message,
             stdout=s.execution_result.stdout,
             stderr=s.execution_result.stderr,
-            submitted_at=s.submitted_at.isoformat(),
+            submitted_at=s.submitted_at.isoformat() if hasattr(s.submitted_at, "isoformat") else str(s.submitted_at),
         )
         for s in submissions
     ]

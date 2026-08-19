@@ -595,14 +595,27 @@ class AssessmentRepository:
                 return None
             return self._row_to_submission(row)
 
-    def get_problem_submissions(self, problem_id_or_slug: str) -> List[Submission]:
+    def get_problem_submissions(self, problem_id_or_slug: str, user_id: Optional[str] = None) -> List[Submission]:
         prob = self.get_problem(problem_id_or_slug)
-        pid = prob.problem_id if prob else problem_id_or_slug
+        canonical_pid = prob.problem_id if prob else problem_id_or_slug
+        slug = prob.slug if prob else problem_id_or_slug
+
         with self._get_conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM submissions WHERE problem_id = ? OR problem_id = ? ORDER BY submitted_at DESC",
-                (pid, problem_id_or_slug),
-            ).fetchall()
+            if user_id and user_id not in ("null", "guest_user", ""):
+                clean_id = user_id.strip().lower().replace("@", "")
+                rows = conn.execute(
+                    """SELECT * FROM submissions 
+                       WHERE (problem_id = ? OR problem_id = ?)
+                         AND (user_id = ? OR user_id = ? OR LOWER(user_name) = ? OR LOWER(user_id) LIKE ?)
+                       ORDER BY submitted_at DESC""",
+                    (canonical_pid, slug, user_id, clean_id, clean_id, f"%{clean_id}%"),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM submissions WHERE problem_id = ? OR problem_id = ? ORDER BY submitted_at DESC",
+                    (canonical_pid, slug),
+                ).fetchall()
+
             return [self._row_to_submission(r) for r in rows]
 
     def get_user_submissions(self, user_id: str) -> List[Submission]:
