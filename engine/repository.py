@@ -19,6 +19,7 @@ from engine.models import (
     Problem,
     ProblemSummaryResponse,
     Submission,
+    SubmissionRecordResponse,  # <-- Added here
     TestCase,
     UserProfileStats,
 )
@@ -605,32 +606,59 @@ class AssessmentRepository:
             return [self._row_to_submission(r) for r in rows]
 
     def get_user_submissions(self, user_id: str) -> List[Submission]:
+        clean_id = user_id.strip().lower().replace("@", "")
         with self._get_conn() as conn:
+            # Query matching user_id, display_name, or stripped username
             rows = conn.execute(
-                "SELECT * FROM submissions WHERE user_id = ? ORDER BY submitted_at DESC",
-                (user_id,),
+                """SELECT * FROM submissions 
+                   WHERE user_id = ? 
+                      OR user_id = ? 
+                      OR LOWER(user_name) = ?
+                      OR LOWER(user_id) LIKE ?
+                   ORDER BY submitted_at DESC""",
+                (user_id, clean_id, clean_id, f"%{clean_id}%"),
             ).fetchall()
             return [self._row_to_submission(r) for r in rows]
 
     def _row_to_submission(self, row) -> Submission:
-        exec_res_raw = row["execution_result"] if "execution_result" in row.keys() else "{}"
+        r = dict(row)
+        exec_res_raw = r.get("execution_result", "{}")
         try:
-            exec_dict = json.loads(exec_res_raw)
+            if isinstance(exec_res_raw, str):
+                exec_dict = json.loads(exec_res_raw)
+            elif isinstance(exec_res_raw, dict):
+                exec_dict = exec_res_raw
+            else:
+                exec_dict = {}
         except Exception:
             exec_dict = {}
 
+        # Ensure execution_result is never None
+        exec_obj = ExecutionResult(**exec_dict) if exec_dict else ExecutionResult()
+
+        submitted_at_val = r.get("submitted_at")
+        if isinstance(submitted_at_val, str):
+            try:
+                sub_dt = datetime.fromisoformat(submitted_at_val)
+            except Exception:
+                sub_dt = datetime.now(timezone.utc)
+        elif isinstance(submitted_at_val, datetime):
+            sub_dt = submitted_at_val
+        else:
+            sub_dt = datetime.now(timezone.utc)
+
         return Submission(
-            submission_id=row["submission_id"],
-            problem_id=row["problem_id"],
-            problem_title=row["problem_title"] if "problem_title" in row.keys() and row["problem_title"] else row["problem_id"],
-            user_id=row["user_id"],
-            user_name=row["user_name"],
-            source_file=row["source_file"] if "source_file" in row.keys() else "solution.cpp",
-            source_code=row["source_code"] if "source_code" in row.keys() else "",
-            contest_id=row["contest_id"] if "contest_id" in row.keys() else None,
-            time_taken_seconds=row["time_taken_seconds"] if "time_taken_seconds" in row.keys() and row["time_taken_seconds"] else 0.0,
-            execution_result=ExecutionResult(**exec_dict) if exec_dict else ExecutionResult(),
-            submitted_at=datetime.fromisoformat(row["submitted_at"]) if "submitted_at" in row.keys() and row["submitted_at"] else datetime.now(timezone.utc),
+            submission_id=str(r.get("submission_id", "")),
+            problem_id=str(r.get("problem_id", "")),
+            problem_title=str(r.get("problem_title") or r.get("problem_id", "")),
+            user_id=str(r.get("user_id", "")),
+            user_name=str(r.get("user_name", "")),
+            source_file=str(r.get("source_file", "solution.cpp")),
+            source_code=str(r.get("source_code", "")),
+            contest_id=r.get("contest_id"),
+            time_taken_seconds=float(r.get("time_taken_seconds") or 0.0),
+            execution_result=exec_obj,
+            submitted_at=sub_dt,
         )
 
     # --- Contest Operations ---
@@ -834,9 +862,13 @@ class AssessmentRepository:
         user_name = fallback_name or "Competitor"
         handle = fallback_handle or f"@{user_id}"
 
+        # Fetch clean user info from DB
         with self._get_conn() as conn:
             try:
-                user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
+                user_row = conn.execute(
+                    "SELECT * FROM users WHERE user_id = ? OR username = ?", 
+                    (user_id, user_id.replace("@", ""))
+                ).fetchone()
                 if user_row:
                     user_name = user_row["display_name"]
                     raw_uname = user_row["username"]
@@ -846,7 +878,7 @@ class AssessmentRepository:
 
         all_problems = self.list_problems()
 
-        # Multi-index lookup by canonical problem_id, slug, and normalized title
+        # Multi-index problem lookup
         prob_lookup: Dict[str, Problem] = {}
         for p in all_problems:
             prob_lookup[p.problem_id] = p
@@ -858,12 +890,14 @@ class AssessmentRepository:
         # Track solved canonical IDs
         solved_canonical_ids = set()
         for s in user_subs:
-            if s.execution_result and s.execution_result.status == "Accepted":
+            res = s.execution_result
+            if res and getattr(res, "status", "") == "Accepted":
                 p_match = prob_lookup.get(s.problem_id)
                 if p_match:
                     solved_canonical_ids.add(p_match.problem_id)
+                else:
+                    solved_canonical_ids.add(s.problem_id)
 
-        # Distinct solved problem objects
         solved_problems_list = [prob_lookup[pid] for pid in solved_canonical_ids if pid in prob_lookup]
 
         easy_total = sum(1 for p in all_problems if p.difficulty.lower() == "easy")
@@ -876,20 +910,23 @@ class AssessmentRepository:
 
         total_solved = len(solved_canonical_ids)
         total_sub_count = len(user_subs)
-        ac_count = sum(1 for s in user_subs if s.execution_result and s.execution_result.status == "Accepted")
+        
+        ac_count = sum(1 for s in user_subs if s.execution_result and getattr(s.execution_result, "status", "") == "Accepted")
         accuracy = round((ac_count / total_sub_count * 100.0), 1) if total_sub_count > 0 else 0.0
 
-        # Accumulate skill tags from solved problems
+        # Accumulate skills from solved problem topic tags
         skills_breakdown: Dict[str, int] = {}
         for p in solved_problems_list:
             if p.topic_tags:
                 for tag in p.topic_tags:
                     skills_breakdown[tag] = skills_breakdown.get(tag, 0) + 1
 
-        recent_submissions = []
+        recent_submissions: List[SubmissionRecordResponse] = []
         for s in user_subs:
             p_obj = prob_lookup.get(s.problem_id)
             title = s.problem_title or (p_obj.title if p_obj else s.problem_id)
+            res = s.execution_result or ExecutionResult()
+
             recent_submissions.append(
                 SubmissionRecordResponse(
                     submission_id=s.submission_id,
@@ -897,17 +934,17 @@ class AssessmentRepository:
                     problem_title=title,
                     user_id=s.user_id,
                     user_name=s.user_name,
-                    status=s.execution_result.status,
-                    passed_test_cases=s.execution_result.passed_test_cases,
-                    total_test_cases=s.execution_result.total_test_cases,
-                    execution_time_ms=s.execution_result.execution_time_ms,
-                    memory_mb=getattr(s.execution_result, "memory_mb", 46.38) or 46.38,
+                    status=getattr(res, "status", "Pending"),
+                    passed_test_cases=getattr(res, "passed_test_cases", 0),
+                    total_test_cases=getattr(res, "total_test_cases", 0),
+                    execution_time_ms=getattr(res, "execution_time_ms", 0.0),
+                    memory_mb=getattr(res, "memory_mb", 46.38) or 46.38,
                     time_taken_seconds=s.time_taken_seconds,
                     source_code=s.source_code,
-                    error_message=s.execution_result.error_message,
-                    stdout=s.execution_result.stdout,
-                    stderr=s.execution_result.stderr,
-                    submitted_at=s.submitted_at.isoformat(),
+                    error_message=getattr(res, "error_message", None),
+                    stdout=getattr(res, "stdout", None),
+                    stderr=getattr(res, "stderr", None),
+                    submitted_at=s.submitted_at.isoformat() if isinstance(s.submitted_at, datetime) else str(s.submitted_at),
                 )
             )
 

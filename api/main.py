@@ -2,6 +2,7 @@
 
 import io
 import zipfile
+import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -173,8 +174,8 @@ def get_user_profile(user_id: str, user_name: Optional[str] = None, handle: Opti
     try:
         return repo.get_user_profile_stats(user_id, fallback_name=user_name, fallback_handle=handle)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate profile stats: {str(e)}")
-
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- Contest API Endpoints ---
 
