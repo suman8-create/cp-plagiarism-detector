@@ -107,6 +107,8 @@ class AssessmentRepository:
         slug = re.sub(r"[^a-zA-Z0-9\s-]", "", title).strip().lower()
         return re.sub(r"[\s-]+", "-", slug)
 
+    # --- Auth Operations ---
+
     def _seed_default_users(self):
         default_accounts = [
             ("std_suman_01", "suman", "Suman", "password123"),
@@ -165,25 +167,24 @@ class AssessmentRepository:
                 "display_name": row["display_name"],
             }
 
-    def _seed_default_problems(self):
-        with self._get_conn() as conn:
-            count = conn.execute("SELECT COUNT(*) as c FROM problems").fetchone()["c"]
-            if count >= 15:
-                return
+    # --- Problem Operations & Deterministic Seeding ---
 
+    def _seed_default_problems(self):
         problems_seed = [
             {
+                "id": "prob_two_sum",
                 "title": "Two Sum",
                 "category": "Algorithms",
                 "topic_tags": ["Array", "Hash Table"],
                 "difficulty": "Easy",
                 "desc": "Given an array of integers nums and target, return indices of two numbers adding to target.",
                 "starter": """#include <iostream>\n#include <vector>\n#include <unordered_map>\nusing namespace std;\nvector<int> twoSum(const vector<int>& nums, int target) {\n    unordered_map<int, int> seen;\n    for(int i=0; i<nums.size(); ++i) {\n        int comp = target - nums[i];\n        if(seen.count(comp)) return {seen[comp], i};\n        seen[nums[i]] = i;\n    }\n    return {};\n}\nint main(){\n    int n, target;\n    if(cin >> n >> target){\n        vector<int> nums(n);\n        for(int i=0; i<n; ++i) cin >> nums[i];\n        auto res = twoSum(nums, target);\n        if(!res.empty()) cout << res[0] << " " << res[1] << endl;\n    }\n    return 0;\n}""",
-                "constraints": ["2 <= nums.length <= 10^4"],
-                "examples": [{"input": "4 9\\n2 7 11 15", "output": "0 1"}],
+                "constraints": ["2 <= nums.length <= 10^4", "-10^9 <= nums[i] <= 10^9"],
+                "examples": [{"input": "4 9\n2 7 11 15", "output": "0 1"}],
                 "tc": [TestCase(input_data="4 9\n2 7 11 15", expected_output="0 1", is_sample=True)]
             },
             {
+                "id": "prob_fibonacci_number",
                 "title": "Fibonacci Number",
                 "category": "Algorithms",
                 "topic_tags": ["Math", "Dynamic Programming"],
@@ -195,6 +196,7 @@ class AssessmentRepository:
                 "tc": [TestCase(input_data="4", expected_output="3", is_sample=True)]
             },
             {
+                "id": "prob_add_two_numbers",
                 "title": "Add Two Numbers",
                 "category": "Algorithms",
                 "topic_tags": ["Math", "Simulation"],
@@ -206,17 +208,19 @@ class AssessmentRepository:
                 "tc": [TestCase(input_data="12 28", expected_output="40", is_sample=True)]
             },
             {
+                "id": "prob_valid_palindrome",
                 "title": "Valid Palindrome",
                 "category": "Algorithms",
                 "topic_tags": ["String", "Two Pointers"],
                 "difficulty": "Easy",
-                "desc": "Check if a given string is a palindrome ignoring case and alphanumeric characters.",
+                "desc": "Check if a given string is a palindrome ignoring non-alphanumeric characters.",
                 "starter": """#include <iostream>\n#include <string>\n#include <cctype>\nusing namespace std;\nbool isPalindrome(string s) {\n    int l = 0, r = (int)s.size() - 1;\n    while(l < r) {\n        while(l < r && !isalnum(s[l])) l++;\n        while(l < r && !isalnum(s[r])) r--;\n        if(tolower(s[l]) != tolower(s[r])) return false;\n        l++; r--;\n    }\n    return true;\n}\nint main() {\n    string s;\n    if(getline(cin, s)) cout << (isPalindrome(s) ? "true" : "false") << endl;\n    return 0;\n}""",
                 "constraints": ["1 <= s.length <= 2 * 10^5"],
                 "examples": [{"input": "race a car", "output": "false"}],
                 "tc": [TestCase(input_data="race a car", expected_output="false", is_sample=True)]
             },
             {
+                "id": "prob_maximum_subarray",
                 "title": "Maximum Subarray",
                 "category": "Algorithms",
                 "topic_tags": ["Array", "Dynamic Programming"],
@@ -224,21 +228,23 @@ class AssessmentRepository:
                 "desc": "Find the subarray with the largest sum and return its sum.",
                 "starter": """#include <iostream>\n#include <vector>\n#include <algorithm>\nusing namespace std;\nint maxSubArray(const vector<int>& nums) {\n    int cur = nums[0], max_s = nums[0];\n    for(size_t i=1; i<nums.size(); ++i) {\n        cur = max(nums[i], cur + nums[i]);\n        max_s = max(max_s, cur);\n    }\n    return max_s;\n}\nint main() {\n    int n;\n    if(cin >> n) {\n        vector<int> a(n);\n        for(int i=0; i<n; ++i) cin >> a[i];\n        cout << maxSubArray(a) << endl;\n    }\n    return 0;\n}""",
                 "constraints": ["1 <= nums.length <= 10^5"],
-                "examples": [{"input": "5\\n-2 1 -3 4 -1", "output": "4"}],
+                "examples": [{"input": "5\n-2 1 -3 4 -1", "output": "4"}],
                 "tc": [TestCase(input_data="5\n-2 1 -3 4 -1", expected_output="4", is_sample=True)]
             },
             {
+                "id": "prob_climbing_stairs",
                 "title": "Climbing Stairs",
                 "category": "Algorithms",
                 "topic_tags": ["Math", "Dynamic Programming"],
                 "difficulty": "Easy",
-                "desc": "You are climbing a staircase. It takes n steps to reach the top. How many distinct ways can you climb to the top taking 1 or 2 steps?",
+                "desc": "You are climbing a staircase with n steps. How many distinct ways can you reach the top taking 1 or 2 steps?",
                 "starter": """#include <iostream>\nusing namespace std;\nint climbStairs(int n) {\n    if(n<=2) return n;\n    int a=1, b=2;\n    for(int i=3; i<=n; ++i){\n        int c = a + b;\n        a = b;\n        b = c;\n    }\n    return b;\n}\nint main() {\n    int n;\n    if(cin >> n) cout << climbStairs(n) << endl;\n    return 0;\n}""",
                 "constraints": ["1 <= n <= 45"],
                 "examples": [{"input": "3", "output": "3"}],
                 "tc": [TestCase(input_data="3", expected_output="3", is_sample=True)]
             },
             {
+                "id": "prob_contains_duplicate",
                 "title": "Contains Duplicate",
                 "category": "Algorithms",
                 "topic_tags": ["Array", "Hash Table"],
@@ -246,21 +252,23 @@ class AssessmentRepository:
                 "desc": "Given an integer array nums, return true if any value appears at least twice in the array.",
                 "starter": """#include <iostream>\n#include <vector>\n#include <unordered_set>\nusing namespace std;\nbool containsDuplicate(const vector<int>& nums) {\n    unordered_set<int> s;\n    for(int x : nums) { if(s.count(x)) return true; s.insert(x); }\n    return false;\n}\nint main() {\n    int n;\n    if(cin >> n) {\n        vector<int> a(n);\n        for(int i=0; i<n; ++i) cin >> a[i];\n        cout << (containsDuplicate(a) ? "true" : "false") << endl;\n    }\n    return 0;\n}""",
                 "constraints": ["1 <= nums.length <= 10^5"],
-                "examples": [{"input": "4\\n1 2 3 1", "output": "true"}],
+                "examples": [{"input": "4\n1 2 3 1", "output": "true"}],
                 "tc": [TestCase(input_data="4\n1 2 3 1", expected_output="true", is_sample=True)]
             },
             {
+                "id": "prob_reverse_string",
                 "title": "Reverse String",
                 "category": "Algorithms",
                 "topic_tags": ["String", "Two Pointers"],
                 "difficulty": "Easy",
-                "desc": "Write a function that reverses a string in-place.",
+                "desc": "Reverse a given string.",
                 "starter": """#include <iostream>\n#include <string>\n#include <algorithm>\nusing namespace std;\nint main() {\n    string s;\n    if(cin >> s) {\n        reverse(s.begin(), s.end());\n        cout << s << endl;\n    }\n    return 0;\n}""",
                 "constraints": ["1 <= s.length <= 10^5"],
                 "examples": [{"input": "hello", "output": "olleh"}],
                 "tc": [TestCase(input_data="hello", expected_output="olleh", is_sample=True)]
             },
             {
+                "id": "prob_merge_sorted_array",
                 "title": "Merge Sorted Array",
                 "category": "Algorithms",
                 "topic_tags": ["Array", "Two Pointers", "Sorting"],
@@ -268,10 +276,11 @@ class AssessmentRepository:
                 "desc": "Merge two sorted arrays nums1 and nums2 into nums1 as one sorted array.",
                 "starter": """#include <iostream>\n#include <vector>\n#include <algorithm>\nusing namespace std;\nint main() {\n    int m, n;\n    if(cin >> m >> n) {\n        vector<int> a(m+n);\n        for(int i=0; i<m; ++i) cin >> a[i];\n        for(int i=0; i<n; ++i) cin >> a[m+i];\n        sort(a.begin(), a.end());\n        for(int i=0; i<m+n; ++i) cout << a[i] << (i+1==m+n?"\\n":" ");\n    }\n    return 0;\n}""",
                 "constraints": ["0 <= m, n <= 200"],
-                "examples": [{"input": "3 3\\n1 2 3\\n2 5 6", "output": "1 2 2 3 5 6"}],
+                "examples": [{"input": "3 3\n1 2 3\n2 5 6", "output": "1 2 2 3 5 6"}],
                 "tc": [TestCase(input_data="3 3\n1 2 3\n2 5 6", expected_output="1 2 2 3 5 6", is_sample=True)]
             },
             {
+                "id": "prob_best_time_to_buy_and_sell_stock",
                 "title": "Best Time to Buy and Sell Stock",
                 "category": "Algorithms",
                 "topic_tags": ["Array", "Dynamic Programming"],
@@ -279,21 +288,23 @@ class AssessmentRepository:
                 "desc": "Find the maximum profit you can achieve from buying and selling stock once.",
                 "starter": """#include <iostream>\n#include <vector>\n#include <algorithm>\nusing namespace std;\nint maxProfit(const vector<int>& p) {\n    if(p.empty()) return 0;\n    int min_p = p[0], max_pro = 0;\n    for(size_t i=1; i<p.size(); ++i){\n        min_p = min(min_p, p[i]);\n        max_pro = max(max_pro, p[i] - min_p);\n    }\n    return max_pro;\n}\nint main(){\n    int n;\n    if(cin >> n){\n        vector<int> a(n);\n        for(int i=0; i<n; ++i) cin >> a[i];\n        cout << maxProfit(a) << endl;\n    }\n    return 0;\n}""",
                 "constraints": ["1 <= prices.length <= 10^5"],
-                "examples": [{"input": "6\\n7 1 5 3 6 4", "output": "5"}],
+                "examples": [{"input": "6\n7 1 5 3 6 4", "output": "5"}],
                 "tc": [TestCase(input_data="6\n7 1 5 3 6 4", expected_output="5", is_sample=True)]
             },
             {
+                "id": "prob_search_insert_position",
                 "title": "Search Insert Position",
                 "category": "Algorithms",
                 "topic_tags": ["Array", "Binary Search"],
                 "difficulty": "Easy",
-                "desc": "Given a sorted array of distinct integers and a target value, return index if found or index where it would be inserted.",
+                "desc": "Given a sorted array of distinct integers and a target value, return index if found or insert index.",
                 "starter": """#include <iostream>\n#include <vector>\nusing namespace std;\nint searchInsert(const vector<int>& nums, int target) {\n    int l = 0, r = (int)nums.size() - 1;\n    while(l <= r) {\n        int mid = l + (r-l)/2;\n        if(nums[mid] == target) return mid;\n        else if(nums[mid] < target) l = mid + 1;\n        else r = mid - 1;\n    }\n    return l;\n}\nint main() {\n    int n, target;\n    if(cin >> n >> target){\n        vector<int> a(n);\n        for(int i=0; i<n; ++i) cin >> a[i];\n        cout << searchInsert(a, target) << endl;\n    }\n    return 0;\n}""",
                 "constraints": ["1 <= nums.length <= 10^4"],
-                "examples": [{"input": "4 5\\n1 3 5 6", "output": "2"}],
+                "examples": [{"input": "4 5\n1 3 5 6", "output": "2"}],
                 "tc": [TestCase(input_data="4 5\n1 3 5 6", expected_output="2", is_sample=True)]
             },
             {
+                "id": "prob_single_number",
                 "title": "Single Number",
                 "category": "Algorithms",
                 "topic_tags": ["Array", "Bit Manipulation"],
@@ -301,56 +312,72 @@ class AssessmentRepository:
                 "desc": "Every element appears twice except for one. Find that single one.",
                 "starter": """#include <iostream>\n#include <vector>\nusing namespace std;\nint singleNumber(const vector<int>& nums) {\n    int res = 0;\n    for(int x : nums) res ^= x;\n    return res;\n}\nint main(){\n    int n;\n    if(cin >> n){\n        vector<int> a(n);\n        for(int i=0; i<n; ++i) cin >> a[i];\n        cout << singleNumber(a) << endl;\n    }\n    return 0;\n}""",
                 "constraints": ["1 <= nums.length <= 3 * 10^4"],
-                "examples": [{"input": "3\\n2 2 1", "output": "1"}],
+                "examples": [{"input": "3\n2 2 1", "output": "1"}],
                 "tc": [TestCase(input_data="3\n2 2 1", expected_output="1", is_sample=True)]
             },
             {
+                "id": "prob_missing_number",
                 "title": "Missing Number",
                 "category": "Algorithms",
                 "topic_tags": ["Array", "Math", "Bit Manipulation"],
                 "difficulty": "Easy",
-                "desc": "Given an array nums containing n distinct numbers in the range [0, n], return the only number in the range that is missing.",
+                "desc": "Given an array nums containing n distinct numbers in [0, n], return the missing number.",
                 "starter": """#include <iostream>\n#include <vector>\nusing namespace std;\nint missingNumber(const vector<int>& nums) {\n    int n = nums.size();\n    long long total = 1LL * n * (n + 1) / 2;\n    for(int x : nums) total -= x;\n    return total;\n}\nint main(){\n    int n;\n    if(cin >> n){\n        vector<int> a(n);\n        for(int i=0; i<n; ++i) cin >> a[i];\n        cout << missingNumber(a) << endl;\n    }\n    return 0;\n}""",
-                "constraints": ["n == nums.length", "1 <= n <= 10^4"],
-                "examples": [{"input": "3\\n3 0 1", "output": "2"}],
+                "constraints": ["1 <= n <= 10^4"],
+                "examples": [{"input": "3\n3 0 1", "output": "2"}],
                 "tc": [TestCase(input_data="3\n3 0 1", expected_output="2", is_sample=True)]
             },
             {
+                "id": "prob_longest_common_prefix",
                 "title": "Longest Common Prefix",
                 "category": "Algorithms",
                 "topic_tags": ["String", "Trie"],
                 "difficulty": "Easy",
-                "desc": "Write a function to find the longest common prefix string amongst an array of strings.",
+                "desc": "Find the longest common prefix string amongst an array of strings.",
                 "starter": """#include <iostream>\n#include <vector>\n#include <string>\nusing namespace std;\nstring longestCommonPrefix(vector<string>& strs) {\n    if(strs.empty()) return "";\n    string prefix = strs[0];\n    for(size_t i=1; i<strs.size(); ++i){\n        while(strs[i].find(prefix) != 0){\n            prefix = prefix.substr(0, prefix.size() - 1);\n            if(prefix.empty()) return "";\n        }\n    }\n    return prefix;\n}\nint main(){\n    int n;\n    if(cin >> n){\n        vector<string> s(n);\n        for(int i=0; i<n; ++i) cin >> s[i];\n        cout << longestCommonPrefix(s) << endl;\n    }\n    return 0;\n}""",
                 "constraints": ["1 <= strs.length <= 200"],
-                "examples": [{"input": "3\\nflower flow flight", "output": "fl"}],
+                "examples": [{"input": "3\nflower flow flight", "output": "fl"}],
                 "tc": [TestCase(input_data="3\nflower flow flight", expected_output="fl", is_sample=True)]
             },
             {
+                "id": "prob_move_zeroes",
                 "title": "Move Zeroes",
                 "category": "Algorithms",
                 "topic_tags": ["Array", "Two Pointers"],
                 "difficulty": "Easy",
-                "desc": "Given an integer array nums, move all 0's to the end of it while maintaining relative order of non-zero elements.",
+                "desc": "Move all 0's to the end of array while maintaining relative order of non-zero elements.",
                 "starter": """#include <iostream>\n#include <vector>\nusing namespace std;\nvoid moveZeroes(vector<int>& nums) {\n    int last = 0;\n    for(size_t i=0; i<nums.size(); ++i){\n        if(nums[i] != 0) nums[last++] = nums[i];\n    }\n    for(size_t i=last; i<nums.size(); ++i) nums[i] = 0;\n}\nint main(){\n    int n;\n    if(cin >> n){\n        vector<int> a(n);\n        for(int i=0; i<n; ++i) cin >> a[i];\n        moveZeroes(a);\n        for(int i=0; i<n; ++i) cout << a[i] << (i+1==n?"\\n":" ");\n    }\n    return 0;\n}""",
                 "constraints": ["1 <= nums.length <= 10^4"],
-                "examples": [{"input": "5\\n0 1 0 3 12", "output": "1 3 12 0 0"}],
+                "examples": [{"input": "5\n0 1 0 3 12", "output": "1 3 12 0 0"}],
                 "tc": [TestCase(input_data="5\n0 1 0 3 12", expected_output="1 3 12 0 0", is_sample=True)]
             }
         ]
 
-        for p in problems_seed:
-            self.create_problem(
-                title=p["title"],
-                description=p["desc"],
-                difficulty=p["difficulty"],
-                category=p["category"],
-                topic_tags=p["topic_tags"],
-                starter_code=p["starter"],
-                constraints=p["constraints"],
-                examples=p["examples"],
-                test_cases=p["tc"],
-            )
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_conn() as conn:
+            for p in problems_seed:
+                slug = self._generate_slug(p["title"])
+                tc_data = [tc.model_dump() for tc in p["tc"]]
+                conn.execute(
+                    """INSERT OR REPLACE INTO problems VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        p["id"],
+                        p["title"],
+                        slug,
+                        p["category"],
+                        json_dump_helper(p["topic_tags"]),
+                        p["desc"],
+                        p["difficulty"],
+                        2.0,
+                        256,
+                        p["starter"],
+                        json_dump_helper(p["constraints"]),
+                        json_dump_helper(p["examples"]),
+                        json_dump_helper(tc_data),
+                        now,
+                    ),
+                )
+            conn.commit()
 
     def _seed_default_contests(self):
         with self._get_conn() as conn:
@@ -358,21 +385,18 @@ class AssessmentRepository:
             if count > 0:
                 return
 
-        all_prob_ids = [p.problem_id for p in self.list_problems()]
-        p_two_sum = all_prob_ids[0]
-        p_fib = all_prob_ids[1] if len(all_prob_ids) > 1 else all_prob_ids[0]
-        
+        all_prob_ids = [p.problem_id for p in self.list_problems()[:2]]
         live_contest = self.create_contest(
             title="Bi-Weekly Contest #1",
             description="Live competitive programming contest. Solve algorithmic challenges within 90 minutes.",
             start_time=datetime.now(timezone.utc) - timedelta(minutes=20),
             duration_minutes=90,
-            problem_ids=[p_two_sum, p_fib],
+            problem_ids=all_prob_ids,
         )
 
         self.register_contest_participant(live_contest.contest_id, "std_alex_101", "Alex Developer")
         self.save_submission(
-            problem_id=p_fib,
+            problem_id="prob_fibonacci_number",
             user_id="std_alex_101",
             user_name="Alex Developer",
             source_code="// Alex Fibonacci",
@@ -383,7 +407,7 @@ class AssessmentRepository:
 
         self.register_contest_participant(live_contest.contest_id, "std_priya_202", "Priya Sharma")
         self.save_submission(
-            problem_id=p_two_sum,
+            problem_id="prob_two_sum",
             user_id="std_priya_202",
             user_name="Priya Sharma",
             source_code="// Priya TwoSum",
@@ -391,8 +415,6 @@ class AssessmentRepository:
             execution_result=ExecutionResult(status="Accepted", passed_test_cases=3, total_test_cases=3, execution_time_ms=18.5, memory_mb=44.6),
             contest_id=live_contest.contest_id,
         )
-
-    # --- Problem Operations ---
 
     def create_problem(
         self,
@@ -406,8 +428,8 @@ class AssessmentRepository:
         examples: Optional[List[Dict[str, str]]] = None,
         test_cases: Optional[List[TestCase]] = None,
     ) -> Problem:
-        problem_id = f"prob_{uuid.uuid4().hex[:8]}"
         slug = self._generate_slug(title)
+        problem_id = f"prob_{slug.replace('-', '_')}"
         now = datetime.now(timezone.utc).isoformat()
         tc_data = [tc.model_dump() for tc in (test_cases or [])]
 
@@ -804,7 +826,9 @@ class AssessmentRepository:
             standings=standings_data,
         )
 
-    # --- Profile & Activity Heatmap ---
+    # --- Profile & Dynamic Skills Aggregation ---
+
+    # In engine/repository.py:
 
     def get_user_profile_stats(self, user_id: str, fallback_name: Optional[str] = None, fallback_handle: Optional[str] = None) -> UserProfileStats:
         user_name = fallback_name or "Competitor"
@@ -821,65 +845,86 @@ class AssessmentRepository:
                 pass
 
         all_problems = self.list_problems()
+
+        # Multi-index lookup by canonical problem_id, slug, and normalized title
+        prob_lookup: Dict[str, Problem] = {}
+        for p in all_problems:
+            prob_lookup[p.problem_id] = p
+            prob_lookup[p.slug] = p
+            prob_lookup[self._generate_slug(p.title)] = p
+
         user_subs = self.get_user_submissions(user_id)
 
-        solved_prob_ids = set(s.problem_id for s in user_subs if s.execution_result and s.execution_result.status == "Accepted")
+        # Track solved canonical IDs
+        solved_canonical_ids = set()
+        for s in user_subs:
+            if s.execution_result and s.execution_result.status == "Accepted":
+                p_match = prob_lookup.get(s.problem_id)
+                if p_match:
+                    solved_canonical_ids.add(p_match.problem_id)
+
+        # Distinct solved problem objects
+        solved_problems_list = [prob_lookup[pid] for pid in solved_canonical_ids if pid in prob_lookup]
 
         easy_total = sum(1 for p in all_problems if p.difficulty.lower() == "easy")
         medium_total = sum(1 for p in all_problems if p.difficulty.lower() == "medium")
         hard_total = sum(1 for p in all_problems if p.difficulty.lower() == "hard")
 
-        easy_solved = sum(1 for p in all_problems if p.difficulty.lower() == "easy" and (p.problem_id in solved_prob_ids or p.slug in solved_prob_ids))
-        medium_solved = sum(1 for p in all_problems if p.difficulty.lower() == "medium" and (p.problem_id in solved_prob_ids or p.slug in solved_prob_ids))
-        hard_solved = sum(1 for p in all_problems if p.difficulty.lower() == "hard" and (p.problem_id in solved_prob_ids or p.slug in solved_prob_ids))
+        easy_solved = sum(1 for p in solved_problems_list if p.difficulty.lower() == "easy")
+        medium_solved = sum(1 for p in solved_problems_list if p.difficulty.lower() == "medium")
+        hard_solved = sum(1 for p in solved_problems_list if p.difficulty.lower() == "hard")
 
-        total_solved = len(solved_prob_ids)
+        total_solved = len(solved_canonical_ids)
         total_sub_count = len(user_subs)
         ac_count = sum(1 for s in user_subs if s.execution_result and s.execution_result.status == "Accepted")
-        acc_rate = round((ac_count / total_sub_count * 100.0), 1) if total_sub_count > 0 else 0.0
+        accuracy = round((ac_count / total_sub_count * 100.0), 1) if total_sub_count > 0 else 0.0
 
-        heatmap_activity: Dict[str, int] = {}
+        # Accumulate skill tags from solved problems
+        skills_breakdown: Dict[str, int] = {}
+        for p in solved_problems_list:
+            if p.topic_tags:
+                for tag in p.topic_tags:
+                    skills_breakdown[tag] = skills_breakdown.get(tag, 0) + 1
+
+        recent_submissions = []
         for s in user_subs:
-            day_str = s.submitted_at.strftime("%Y-%m-%d")
-            heatmap_activity[day_str] = heatmap_activity.get(day_str, 0) + 1
-
-        recent_submissions = [
-            SubmissionRecordResponse(
-                submission_id=s.submission_id,
-                problem_id=s.problem_id,
-                problem_title=s.problem_title or s.problem_id,
-                user_id=s.user_id,
-                user_name=s.user_name,
-                status=s.execution_result.status,
-                passed_test_cases=s.execution_result.passed_test_cases,
-                total_test_cases=s.execution_result.total_test_cases,
-                execution_time_ms=s.execution_result.execution_time_ms,
-                memory_mb=s.execution_result.memory_mb if hasattr(s.execution_result, "memory_mb") and s.execution_result.memory_mb else 46.38,
-                time_taken_seconds=s.time_taken_seconds,
-                source_code=s.source_code,
-                error_message=s.execution_result.error_message,
-                stdout=s.execution_result.stdout,
-                stderr=s.execution_result.stderr,
-                submitted_at=s.submitted_at.isoformat(),
+            p_obj = prob_lookup.get(s.problem_id)
+            title = s.problem_title or (p_obj.title if p_obj else s.problem_id)
+            recent_submissions.append(
+                SubmissionRecordResponse(
+                    submission_id=s.submission_id,
+                    problem_id=s.problem_id,
+                    problem_title=title,
+                    user_id=s.user_id,
+                    user_name=s.user_name,
+                    status=s.execution_result.status,
+                    passed_test_cases=s.execution_result.passed_test_cases,
+                    total_test_cases=s.execution_result.total_test_cases,
+                    execution_time_ms=s.execution_result.execution_time_ms,
+                    memory_mb=getattr(s.execution_result, "memory_mb", 46.38) or 46.38,
+                    time_taken_seconds=s.time_taken_seconds,
+                    source_code=s.source_code,
+                    error_message=s.execution_result.error_message,
+                    stdout=s.execution_result.stdout,
+                    stderr=s.execution_result.stderr,
+                    submitted_at=s.submitted_at.isoformat(),
+                )
             )
-            for s in user_subs[:15]
-        ]
 
         return UserProfileStats(
             user_id=user_id,
             user_name=user_name,
             handle=handle,
-            rank=1556455,
             total_solved=total_solved,
             total_problems=max(len(all_problems), 15),
             easy_solved=easy_solved,
-            easy_total=max(easy_total, 10),
+            easy_total=max(easy_total, 1),
             medium_solved=medium_solved,
-            medium_total=max(medium_total, 4),
+            medium_total=max(medium_total, 1),
             hard_solved=hard_solved,
             hard_total=max(hard_total, 1),
-            acceptance_rate=acc_rate,
+            accuracy_percentage=accuracy,
             total_submissions=total_sub_count,
+            skills_breakdown=skills_breakdown,
             recent_submissions=recent_submissions,
-            heatmap_activity=heatmap_activity,
         )

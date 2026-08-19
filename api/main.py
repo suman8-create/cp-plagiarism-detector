@@ -306,8 +306,16 @@ def register_for_contest(contest_id: str, user_id: str = "std_suman_01", user_na
 @app.get("/api/problems", response_model=List[ProblemSummaryResponse])
 def list_problems(user_id: Optional[str] = None):
     problems = repo.list_problems()
-    user_subs = repo.get_user_submissions(user_id) if (user_id and user_id != 'null') else []
-    solved_ids = set(s.problem_id for s in user_subs if s.execution_result.status == "Accepted")
+    user_subs = repo.get_user_submissions(user_id) if (user_id and user_id != 'null' and user_id != 'guest_user') else []
+    
+    solved_keys = set()
+    for s in user_subs:
+        if s.execution_result and s.execution_result.status == "Accepted":
+            solved_keys.add(s.problem_id)
+            prob_obj = repo.get_problem(s.problem_id)
+            if prob_obj:
+                solved_keys.add(prob_obj.slug)
+                solved_keys.add(prob_obj.problem_id)
 
     return [
         ProblemSummaryResponse(
@@ -319,11 +327,10 @@ def list_problems(user_id: Optional[str] = None):
             topic_tags=p.topic_tags,
             acceptance_rate=65.4,
             submission_count=len(repo.get_problem_submissions(p.problem_id)),
-            is_solved=(p.problem_id in solved_ids or p.slug in solved_ids),
+            is_solved=(p.problem_id in solved_keys or p.slug in solved_keys),
         )
         for p in problems
     ]
-
 
 @app.get("/api/problems/{problem_id_or_slug}", response_model=ProblemDetailResponse)
 def get_problem(problem_id_or_slug: str):

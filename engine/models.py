@@ -11,11 +11,11 @@ def get_utc_now() -> datetime:
 
 
 class ExecutionResult(BaseModel):
-    status: str = "Pending"  # "Accepted", "Wrong Answer", "Compilation Error", "Time Limit Exceeded", "Runtime Error"
+    status: str = "Pending"
     passed_test_cases: int = 0
     total_test_cases: int = 0
     execution_time_ms: float = 0.0
-    memory_mb: float = 0.0
+    memory_mb: float = 46.38
     stdout: str = ""
     stderr: str = ""
     error_message: Optional[str] = None
@@ -36,9 +36,9 @@ class Submission(BaseModel):
     user_id: str
     user_name: str
     source_file: str = "solution.cpp"
-    source_code: str
+    source_code: str = ""
     contest_id: Optional[str] = None
-    time_taken_seconds: float = 0.0  # Time spent solving this attempt
+    time_taken_seconds: float = 0.0
     execution_result: ExecutionResult = Field(default_factory=ExecutionResult)
     submitted_at: datetime = Field(default_factory=get_utc_now)
 
@@ -50,7 +50,7 @@ class Problem(BaseModel):
     category: str = "Algorithms"
     topic_tags: List[str] = Field(default_factory=list)
     description: str
-    difficulty: str = "Medium"  # "Easy", "Medium", "Hard"
+    difficulty: str = "Medium"
     time_limit_sec: float = 2.0
     memory_limit_mb: int = 256
     starter_code: str = ""
@@ -104,7 +104,7 @@ class Contest(BaseModel):
         return ContestStatus.LIVE
 
 
-# --- API Request & Response Schemas ---
+# --- API Schemas ---
 
 class TestCaseSchema(BaseModel):
     input_data: str
@@ -193,16 +193,16 @@ class ContestDetailResponse(BaseModel):
 class SubmissionRecordResponse(BaseModel):
     submission_id: str
     problem_id: str
-    problem_title: str
+    problem_title: str = ""
     user_id: str
     user_name: str
     status: str
     passed_test_cases: int
     total_test_cases: int
     execution_time_ms: float
-    memory_mb: float = 46.2
+    memory_mb: float = 46.38
     time_taken_seconds: float = 0.0
-    source_code: str
+    source_code: str = ""
     error_message: Optional[str] = None
     stdout: Optional[str] = None
     stderr: Optional[str] = None
@@ -211,7 +211,7 @@ class SubmissionRecordResponse(BaseModel):
 
 class LeaderboardProblemCell(BaseModel):
     problem_id: str
-    status: str  # "SOLVED", "ATTEMPTED", "UNTOUCHED"
+    status: str
     attempts_count: int
     solved_time_min: Optional[float] = None
 
@@ -239,7 +239,6 @@ class UserProfileStats(BaseModel):
     user_id: str
     user_name: str
     handle: str
-    rank: int = 1556455
     total_solved: int
     total_problems: int
     easy_solved: int
@@ -248,7 +247,7 @@ class UserProfileStats(BaseModel):
     medium_total: int
     hard_solved: int
     hard_total: int
-    acceptance_rate: float
+    accuracy_percentage: float
     total_submissions: int
-    recent_submissions: List[SubmissionRecordResponse]
-    heatmap_activity: Dict[str, int]  # YYYY-MM-DD -> count
+    skills_breakdown: Dict[str, int] = Field(default_factory=dict)
+    recent_submissions: List[SubmissionRecordResponse] = Field(default_factory=list)
