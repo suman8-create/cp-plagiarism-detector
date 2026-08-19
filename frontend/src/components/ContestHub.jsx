@@ -5,16 +5,13 @@ import {
   Trophy, 
   Timer, 
   ArrowRight, 
-  Users, 
   CheckCircle2, 
   Circle, 
   Lock, 
-  Calendar,
   Clock, 
   ArrowLeft,
   Medal,
-  Flame,
-  XCircle
+  RefreshCw
 } from 'lucide-react';
 
 export default function ContestHub({ currentUser, onSelectContestProblem }) {
@@ -24,7 +21,6 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
   const [activeTab, setActiveTab] = useState('problems'); // 'problems' | 'leaderboard'
   const [leaderboard, setLeaderboard] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [loadingDetail, setLoadingDetail] = useState(false);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [timeLeft, setTimeLeft] = useState('');
 
@@ -45,7 +41,6 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
 
   const fetchContestDetail = async (cid) => {
     try {
-      setLoadingDetail(true);
       const res = await fetch(`http://127.0.0.1:8000/api/contests/${cid}?user_id=${currentUser.user_id}`);
       if (res.ok) {
         const data = await res.json();
@@ -54,8 +49,6 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
       }
     } catch (err) {
       console.error('Failed to load contest detail:', err);
-    } finally {
-      setLoadingDetail(false);
     }
   };
 
@@ -78,6 +71,7 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
     fetchContests();
   }, []);
 
+  // Fetch immediately when contest or tab changes
   useEffect(() => {
     if (activeContestId) {
       fetchContestDetail(activeContestId);
@@ -85,7 +79,7 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
         fetchLeaderboard(activeContestId);
       }
     }
-  }, [currentUser, activeContestId, activeTab]);
+  }, [currentUser.user_id, activeContestId, activeTab]);
 
   // Timer countdown
   useEffect(() => {
@@ -271,28 +265,41 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
         </div>
 
         {/* Contest Arena Tabs */}
-        <div className="flex items-center space-x-2 border-b border-slate-800 pb-2">
-          <button
-            onClick={() => setActiveTab('problems')}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
-              activeTab === 'problems'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800'
-            }`}
-          >
-            Problems Set ({contestDetail.problems.length})
-          </button>
-          <button
-            onClick={() => { setActiveTab('leaderboard'); fetchLeaderboard(contestDetail.contest_id); }}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'leaderboard'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800'
-            }`}
-          >
-            <Medal className="w-3.5 h-3.5 text-amber-400" />
-            <span>Leaderboard</span>
-          </button>
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setActiveTab('problems')}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'problems'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800'
+              }`}
+            >
+              Problems Set ({contestDetail.problems.length})
+            </button>
+            <button
+              onClick={() => { setActiveTab('leaderboard'); fetchLeaderboard(contestDetail.contest_id); }}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1.5 ${
+                activeTab === 'leaderboard'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800'
+              }`}
+            >
+              <Medal className="w-3.5 h-3.5 text-amber-400" />
+              <span>Leaderboard</span>
+            </button>
+          </div>
+
+          {activeTab === 'leaderboard' && (
+            <button
+              onClick={() => fetchLeaderboard(contestDetail.contest_id)}
+              disabled={loadingLeaderboard}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingLeaderboard ? 'animate-spin text-indigo-400' : ''}`} />
+              <span>Refresh Standings</span>
+            </button>
+          )}
         </div>
 
         {/* Tab Content 1: Problems List */}
@@ -352,7 +359,7 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
         {/* Tab Content 2: Live Leaderboard Standings Table */}
         {activeTab === 'leaderboard' && (
           <div className="space-y-4">
-            {loadingLeaderboard ? (
+            {loadingLeaderboard && !leaderboard ? (
               <div className="p-12 text-center text-xs text-slate-500 bg-slate-900/40 rounded-xl border border-slate-800">
                 Calculating live rankings and penalty scores...
               </div>

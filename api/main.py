@@ -23,13 +23,14 @@ from engine.models import (
     SubmissionRecordResponse,
     TestCase,
     TestCaseSchema,
+    UserProfileStats,
 )
 from engine.repository import AssessmentRepository
 
 app = FastAPI(
     title="Competitive Programming & Code Integrity Platform API",
     description="Competitive coding platform with integrated AST plagiarism detector & LLM forensic engine",
-    version="3.2.0",
+    version="4.1.0",
 )
 
 detector_engine = PlagiarismDetector()
@@ -46,13 +47,33 @@ app.add_middleware(
 )
 
 
-# --- Execution & Submission API Schemas ---
+# --- Auth Request Schemas ---
+
+class RegisterRequest(BaseModel):
+    username: str
+    display_name: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    user_id: str
+    username: str
+    display_name: str
+
+
+# --- Execution & Submission Schemas ---
 
 class CodeRunRequest(BaseModel):
     source_code: str
     user_id: Optional[str] = "std_suman_01"
     user_name: Optional[str] = "Suman"
     contest_id: Optional[str] = None
+    time_taken_seconds: Optional[float] = 0.0
 
 
 class CodeExecutionResponse(BaseModel):
@@ -61,6 +82,8 @@ class CodeExecutionResponse(BaseModel):
     passed_test_cases: int
     total_test_cases: int
     execution_time_ms: float
+    memory_mb: float = 46.38
+    time_taken_seconds: float = 0.0
     stdout: str
     stderr: str
     error_message: Optional[str] = None
@@ -112,26 +135,42 @@ def health_check():
     return {
         "status": "online",
         "service": "Competitive Programming & Code Integrity Platform",
-        "version": "3.2.0",
+        "version": "4.1.0",
     }
 
 
-@app.get("/api/template-stats", response_model=TemplateStatsResponse)
-def get_template_stats():
-    stats = detector_engine.last_boilerplate_stats
-    if not stats:
-        return TemplateStatsResponse(
-            total_files_evaluated=0,
-            boilerplate_hashes_count=0,
-            frequency_threshold=detector_engine.boilerplate_threshold,
-            minimum_file_threshold=3,
+# --- Auth Endpoints ---
+
+@app.post("/api/auth/register", response_model=AuthResponse)
+def register(req: RegisterRequest):
+    try:
+        user = repo.register_user(req.username, req.display_name, req.password)
+        return AuthResponse(
+            user_id=user["user_id"],
+            username=user["username"],
+            display_name=user["display_name"],
         )
-    return TemplateStatsResponse(
-        total_files_evaluated=stats.get("total_files", 0),
-        boilerplate_hashes_count=stats.get("boilerplate_hashes_count", 0),
-        frequency_threshold=stats.get("threshold_used", 0.50),
-        minimum_file_threshold=stats.get("min_file_threshold", 3),
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def login(req: LoginRequest):
+    user = repo.authenticate_user(req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    return AuthResponse(
+        user_id=user["user_id"],
+        username=user["username"],
+        display_name=user["display_name"],
     )
+
+
+# --- Profile Stats API ---
+
+@app.get("/api/users/{user_id}/profile", response_model=UserProfileStats)
+def get_user_profile(user_id: str, user_name: str = "Suman", handle: str = "@suman"):
+    return repo.get_user_profile_stats(user_id, user_name, handle)
 
 
 # --- Contest API Endpoints ---
@@ -169,16 +208,20 @@ def get_contest(contest_id: str, user_id: str = "std_suman_01"):
     for pid in c.problem_ids:
         prob = repo.get_problem(pid)
         if prob:
+            is_prob_solved = (prob.problem_id in user_solved_ids) or (prob.slug in user_solved_ids)
             problems_list.append(
                 ProblemSummaryResponse(
                     problem_id=prob.problem_id,
                     title=prob.title,
                     slug=prob.slug,
                     difficulty=prob.difficulty,
-                    submission_count=len(prob.submissions),
-                    is_solved=(prob.problem_id in user_solved_ids),
+                    category=prob.category,
+                    topic_tags=prob.topic_tags,
+                    is_solved=is_prob_solved,
                 )
             )
+
+    user_solved_count = sum(1 for p in problems_list if p.is_solved)
 
     return ContestDetailResponse(
         contest_id=c.contest_id,
@@ -191,8 +234,8 @@ def get_contest(contest_id: str, user_id: str = "std_suman_01"):
         problems=problems_list,
         participant_count=len(c.participants),
         user_registered=is_registered,
-        user_score=participant.score if participant else 0,
-        user_solved_count=len(user_solved_ids),
+        user_score=user_solved_count * 100,
+        user_solved_count=user_solved_count,
         user_penalty_minutes=round(participant.penalty_time_sec / 60.0, 1) if participant else 0.0,
     )
 
@@ -213,7 +256,7 @@ def create_contest(req: CreateContestRequest):
         description=req.description or "",
         start_time=start,
         duration_minutes=req.duration_minutes,
-        problem_ids=req.problem_ids or list(repo._problems.keys()),
+        problem_ids=req.problem_ids or [p.problem_id for p in repo.list_problems()],
     )
 
     problems_list = [
@@ -222,7 +265,8 @@ def create_contest(req: CreateContestRequest):
             title=p.title,
             slug=p.slug,
             difficulty=p.difficulty,
-            submission_count=len(p.submissions),
+            category=p.category,
+            topic_tags=p.topic_tags,
             is_solved=False,
         )
         for pid in contest.problem_ids
@@ -257,16 +301,22 @@ def register_for_contest(contest_id: str, user_id: str = "std_suman_01", user_na
 # --- Problem Platform Endpoints ---
 
 @app.get("/api/problems", response_model=List[ProblemSummaryResponse])
-def list_problems():
+def list_problems(user_id: Optional[str] = "std_suman_01"):
     problems = repo.list_problems()
+    user_subs = repo.get_user_submissions(user_id) if user_id else []
+    solved_ids = set(s.problem_id for s in user_subs if s.execution_result.status == "Accepted")
+
     return [
         ProblemSummaryResponse(
             problem_id=p.problem_id,
             title=p.title,
             slug=p.slug,
             difficulty=p.difficulty,
-            submission_count=len(p.submissions),
-            is_solved=False,
+            category=p.category,
+            topic_tags=p.topic_tags,
+            acceptance_rate=65.4,
+            submission_count=len(repo.get_problem_submissions(p.problem_id)),
+            is_solved=(p.problem_id in solved_ids or p.slug in solved_ids),
         )
         for p in problems
     ]
@@ -295,63 +345,15 @@ def get_problem(problem_id_or_slug: str):
         slug=p.slug,
         description=p.description,
         difficulty=p.difficulty,
+        category=p.category,
+        topic_tags=p.topic_tags,
         time_limit_sec=p.time_limit_sec,
         memory_limit_mb=p.memory_limit_mb,
         starter_code=p.starter_code,
         constraints=p.constraints,
         examples=p.examples,
         sample_test_cases=sample_tests,
-        submission_count=len(p.submissions),
-    )
-
-
-@app.post("/api/problems", response_model=ProblemDetailResponse)
-def create_problem(req: CreateProblemRequest):
-    test_cases = [
-        TestCase(
-            input_data=tc.input_data,
-            expected_output=tc.expected_output,
-            is_sample=tc.is_sample,
-            is_hidden=not tc.is_sample,
-            explanation=tc.explanation,
-        )
-        for tc in (req.test_cases or [])
-    ]
-
-    problem = repo.create_problem(
-        title=req.title,
-        description=req.description,
-        difficulty=req.difficulty or "Medium",
-        starter_code=req.starter_code or "",
-        constraints=req.constraints or [],
-        examples=req.examples or [],
-        test_cases=test_cases,
-    )
-
-    sample_tests = [
-        TestCaseSchema(
-            input_data=t.input_data,
-            expected_output=t.expected_output,
-            is_sample=t.is_sample,
-            explanation=t.explanation,
-        )
-        for t in problem.test_cases
-        if t.is_sample
-    ]
-
-    return ProblemDetailResponse(
-        problem_id=problem.problem_id,
-        title=problem.title,
-        slug=problem.slug,
-        description=problem.description,
-        difficulty=problem.difficulty,
-        time_limit_sec=problem.time_limit_sec,
-        memory_limit_mb=problem.memory_limit_mb,
-        starter_code=problem.starter_code,
-        constraints=problem.constraints,
-        examples=problem.examples,
-        sample_test_cases=sample_tests,
-        submission_count=0,
+        submission_count=len(repo.get_problem_submissions(p.problem_id)),
     )
 
 
@@ -378,6 +380,8 @@ def run_sample_cases(problem_id_or_slug: str, req: CodeRunRequest):
         passed_test_cases=result.passed_test_cases,
         total_test_cases=result.total_test_cases,
         execution_time_ms=result.execution_time_ms,
+        memory_mb=46.38,
+        time_taken_seconds=req.time_taken_seconds or 0.0,
         stdout=result.stdout,
         stderr=result.stderr,
         error_message=result.error_message,
@@ -390,7 +394,6 @@ def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
     if not problem:
         raise HTTPException(status_code=404, detail="Problem not found")
 
-    # Contest Gating
     if req.contest_id:
         contest = repo.get_contest(req.contest_id)
         if not contest:
@@ -400,19 +403,18 @@ def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
         if contest.status == ContestStatus.UPCOMING:
             raise HTTPException(status_code=400, detail="Contest has not started yet.")
 
-    # 1. Run full test case suite
     result = exec_runner.execute(
         source_code=req.source_code,
         test_cases=problem.test_cases,
         time_limit_sec=problem.time_limit_sec,
     )
 
-    # 2. Persist submission
     submission = repo.save_submission(
         problem_id=problem.problem_id,
         user_id=req.user_id or "std_suman_01",
         user_name=req.user_name or "Suman",
         source_code=req.source_code,
+        time_taken_seconds=req.time_taken_seconds or 0.0,
         execution_result=result,
         contest_id=req.contest_id,
     )
@@ -423,6 +425,8 @@ def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
         passed_test_cases=result.passed_test_cases,
         total_test_cases=result.total_test_cases,
         execution_time_ms=result.execution_time_ms,
+        memory_mb=46.38,
+        time_taken_seconds=submission.time_taken_seconds,
         stdout=result.stdout,
         stderr=result.stderr,
         error_message=result.error_message,
@@ -432,21 +436,20 @@ def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
 
 @app.get("/api/problems/{problem_id_or_slug}/submissions", response_model=List[SubmissionRecordResponse])
 def get_problem_submissions(problem_id_or_slug: str):
-    problem = repo.get_problem(problem_id_or_slug)
-    if not problem:
-        raise HTTPException(status_code=404, detail="Problem not found")
-
-    submissions = repo.get_problem_submissions(problem.problem_id)
+    submissions = repo.get_problem_submissions(problem_id_or_slug)
     return [
         SubmissionRecordResponse(
             submission_id=s.submission_id,
             problem_id=s.problem_id,
+            problem_title=s.problem_title,
             user_id=s.user_id,
             user_name=s.user_name,
             status=s.execution_result.status,
             passed_test_cases=s.execution_result.passed_test_cases,
             total_test_cases=s.execution_result.total_test_cases,
             execution_time_ms=s.execution_result.execution_time_ms,
+            memory_mb=s.execution_result.memory_mb or 46.38,
+            time_taken_seconds=s.time_taken_seconds,
             source_code=s.source_code,
             error_message=s.execution_result.error_message,
             stdout=s.execution_result.stdout,

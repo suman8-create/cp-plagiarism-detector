@@ -15,6 +15,7 @@ class ExecutionResult(BaseModel):
     passed_test_cases: int = 0
     total_test_cases: int = 0
     execution_time_ms: float = 0.0
+    memory_mb: float = 0.0
     stdout: str = ""
     stderr: str = ""
     error_message: Optional[str] = None
@@ -31,11 +32,13 @@ class TestCase(BaseModel):
 class Submission(BaseModel):
     submission_id: str
     problem_id: str
+    problem_title: str = ""
     user_id: str
     user_name: str
     source_file: str = "solution.cpp"
     source_code: str
     contest_id: Optional[str] = None
+    time_taken_seconds: float = 0.0  # Time spent solving this attempt
     execution_result: ExecutionResult = Field(default_factory=ExecutionResult)
     submitted_at: datetime = Field(default_factory=get_utc_now)
 
@@ -44,6 +47,8 @@ class Problem(BaseModel):
     problem_id: str
     title: str
     slug: str
+    category: str = "Algorithms"
+    topic_tags: List[str] = Field(default_factory=list)
     description: str
     difficulty: str = "Medium"  # "Easy", "Medium", "Hard"
     time_limit_sec: float = 2.0
@@ -52,7 +57,6 @@ class Problem(BaseModel):
     constraints: List[str] = Field(default_factory=list)
     examples: List[Dict[str, str]] = Field(default_factory=list)
     test_cases: List[TestCase] = Field(default_factory=list)
-    submissions: Dict[str, Submission] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=get_utc_now)
 
 
@@ -100,7 +104,7 @@ class Contest(BaseModel):
         return ContestStatus.LIVE
 
 
-# --- API Schemas ---
+# --- API Request & Response Schemas ---
 
 class TestCaseSchema(BaseModel):
     input_data: str
@@ -113,6 +117,8 @@ class CreateProblemRequest(BaseModel):
     title: str
     description: str
     difficulty: Optional[str] = "Medium"
+    category: Optional[str] = "Algorithms"
+    topic_tags: Optional[List[str]] = Field(default_factory=list)
     starter_code: Optional[str] = ""
     constraints: Optional[List[str]] = Field(default_factory=list)
     examples: Optional[List[Dict[str, str]]] = Field(default_factory=list)
@@ -124,7 +130,10 @@ class ProblemSummaryResponse(BaseModel):
     title: str
     slug: str
     difficulty: str
-    submission_count: int
+    category: str = "Algorithms"
+    topic_tags: List[str] = Field(default_factory=list)
+    acceptance_rate: float = 65.4
+    submission_count: int = 0
     is_solved: bool = False
 
 
@@ -134,6 +143,8 @@ class ProblemDetailResponse(BaseModel):
     slug: str
     description: str
     difficulty: str
+    category: str
+    topic_tags: List[str]
     time_limit_sec: float
     memory_limit_mb: int
     starter_code: str
@@ -182,20 +193,21 @@ class ContestDetailResponse(BaseModel):
 class SubmissionRecordResponse(BaseModel):
     submission_id: str
     problem_id: str
+    problem_title: str
     user_id: str
     user_name: str
     status: str
     passed_test_cases: int
     total_test_cases: int
     execution_time_ms: float
+    memory_mb: float = 46.2
+    time_taken_seconds: float = 0.0
     source_code: str
     error_message: Optional[str] = None
     stdout: Optional[str] = None
     stderr: Optional[str] = None
     submitted_at: str
 
-
-# --- Leaderboard Schemas ---
 
 class LeaderboardProblemCell(BaseModel):
     problem_id: str
@@ -221,3 +233,22 @@ class ContestLeaderboardResponse(BaseModel):
     is_locked: bool
     problems: List[ProblemSummaryResponse]
     standings: List[LeaderboardRow]
+
+
+class UserProfileStats(BaseModel):
+    user_id: str
+    user_name: str
+    handle: str
+    rank: int = 1556455
+    total_solved: int
+    total_problems: int
+    easy_solved: int
+    easy_total: int
+    medium_solved: int
+    medium_total: int
+    hard_solved: int
+    hard_total: int
+    acceptance_rate: float
+    total_submissions: int
+    recent_submissions: List[SubmissionRecordResponse]
+    heatmap_activity: Dict[str, int]  # YYYY-MM-DD -> count
