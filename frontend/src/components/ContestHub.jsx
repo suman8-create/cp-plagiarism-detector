@@ -11,10 +11,11 @@ import {
   Clock, 
   ArrowLeft,
   Medal,
-  RefreshCw
+  RefreshCw,
+  LogIn
 } from 'lucide-react';
 
-export default function ContestHub({ currentUser, onSelectContestProblem }) {
+export default function ContestHub({ currentUser, onRequestAuth, onSelectContestProblem }) {
   const [contests, setContests] = useState([]);
   const [activeContestId, setActiveContestId] = useState(null);
   const [contestDetail, setContestDetail] = useState(null);
@@ -23,6 +24,9 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
   const [loading, setLoading] = useState(true);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [timeLeft, setTimeLeft] = useState('');
+
+  const activeUserId = currentUser?.user_id || 'guest_user';
+  const activeUserName = currentUser?.user_name || 'Guest';
 
   const fetchContests = async () => {
     try {
@@ -41,7 +45,7 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
 
   const fetchContestDetail = async (cid) => {
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/contests/${cid}?user_id=${currentUser.user_id}`);
+      const res = await fetch(`http://127.0.0.1:8000/api/contests/${cid}?user_id=${activeUserId}`);
       if (res.ok) {
         const data = await res.json();
         setContestDetail(data);
@@ -71,7 +75,6 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
     fetchContests();
   }, []);
 
-  // Fetch immediately when contest or tab changes
   useEffect(() => {
     if (activeContestId) {
       fetchContestDetail(activeContestId);
@@ -79,7 +82,7 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
         fetchLeaderboard(activeContestId);
       }
     }
-  }, [currentUser.user_id, activeContestId, activeTab]);
+  }, [activeUserId, activeContestId, activeTab]);
 
   // Timer countdown
   useEffect(() => {
@@ -119,9 +122,13 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
   }, [contestDetail]);
 
   const handleRegister = async () => {
+    if (!currentUser) {
+      if (onRequestAuth) onRequestAuth();
+      return;
+    }
     if (!contestDetail) return;
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/contests/${contestDetail.contest_id}/register?user_id=${currentUser.user_id}&user_name=${encodeURIComponent(currentUser.user_name)}`, {
+      const res = await fetch(`http://127.0.0.1:8000/api/contests/${contestDetail.contest_id}/register?user_id=${activeUserId}&user_name=${encodeURIComponent(activeUserName)}`, {
         method: 'POST'
       });
       if (res.ok) {
@@ -163,7 +170,7 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
 
   if (loading) {
     return (
-      <div className="p-16 text-center text-xs text-slate-500 bg-slate-900/40 rounded-2xl border border-slate-800">
+      <div className="p-16 text-center text-xs text-slate-500 bg-[#1e1e1e] rounded-2xl border border-[#2a2a2a]">
         Loading competitive contests...
       </div>
     );
@@ -247,7 +254,7 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
               <div>
                 <span className="text-[10px] text-slate-500 uppercase font-semibold block">Player Profile</span>
                 <span className="text-xs font-semibold text-slate-200 mt-0.5 block line-clamp-1">
-                  {currentUser.user_name}
+                  {currentUser ? currentUser.user_name : 'Guest'}
                 </span>
               </div>
               {!contestDetail.user_registered && !isFinished ? (
@@ -255,7 +262,7 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
                   onClick={handleRegister}
                   className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                 >
-                  Join
+                  {currentUser ? 'Join' : 'Sign In'}
                 </button>
               ) : (
                 <span className="text-[11px] text-emerald-400 font-semibold">Active</span>
@@ -388,7 +395,7 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
                     </thead>
                     <tbody className="divide-y divide-slate-800/80">
                       {leaderboard.standings.map((row) => {
-                        const isSelf = row.user_id === currentUser.user_id;
+                        const isSelf = currentUser && row.user_id === currentUser.user_id;
                         return (
                           <tr
                             key={row.user_id}
@@ -428,7 +435,6 @@ export default function ContestHub({ currentUser, onSelectContestProblem }) {
                               {row.total_penalty_min}m
                             </td>
 
-                            {/* Problem Cell Result */}
                             {leaderboard.problems.map((p) => {
                               const cell = row.problem_results[p.problem_id];
                               if (!cell || cell.status === 'UNTOUCHED') {

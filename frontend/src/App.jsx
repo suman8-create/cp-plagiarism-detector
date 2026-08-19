@@ -10,26 +10,16 @@ import {
   AlertCircle, 
   ShieldCheck, 
   Bot, 
-  Trophy, 
-  User, 
-  Check, 
   Flame, 
   Search,
   CheckCircle2,
-  LogOut,
-  LogIn,
-  UserPlus
+  LogIn
 } from 'lucide-react';
 import DiffViewer from './components/DiffViewer';
 import ProblemWorkspace from './components/ProblemWorkspace';
 import ContestHub from './components/ContestHub';
 import ProfileDashboard from './components/ProfileDashboard';
-
-const DEFAULT_USER = {
-  user_id: 'std_suman_01',
-  user_name: 'Suman',
-  handle: '@suman'
-};
+import AuthModal from './components/AuthModal';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
@@ -37,18 +27,10 @@ export default function App() {
     if (saved) {
       try { return JSON.parse(saved); } catch (e) {}
     }
-    return DEFAULT_USER;
+    return null;
   });
 
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
-  const [authUsername, setAuthUsername] = useState('');
-  const [authDisplayName, setAuthDisplayName] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authError, setAuthError] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
-
-  // 'problems' | 'contests' | 'profile' | 'quick_scan' | 'problem_workspace'
   const [currentView, setCurrentView] = useState('problems');
   
   const [problems, setProblems] = useState([]);
@@ -59,7 +41,7 @@ export default function App() {
   const [activeContestTitle, setActiveContestTitle] = useState(null);
   const [loadingProblems, setLoadingProblems] = useState(false);
 
-  // Ad-Hoc Scanner State
+  // Scanner State
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
@@ -67,13 +49,18 @@ export default function App() {
   const [activeComparison, setActiveComparison] = useState(null);
 
   useEffect(() => {
-    localStorage.setItem('cp_active_user', JSON.stringify(currentUser));
+    if (currentUser) {
+      localStorage.setItem('cp_active_user', JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem('cp_active_user');
+    }
   }, [currentUser]);
 
   const fetchProblems = async () => {
     try {
       setLoadingProblems(true);
-      const res = await fetch(`http://127.0.0.1:8000/api/problems?user_id=${currentUser.user_id}`);
+      const uidParam = currentUser ? `?user_id=${currentUser.user_id}` : '';
+      const res = await fetch(`http://127.0.0.1:8000/api/problems${uidParam}`);
       if (res.ok) {
         const data = await res.json();
         setProblems(data);
@@ -89,49 +76,23 @@ export default function App() {
     fetchProblems();
   }, [currentUser]);
 
-  const handleAuthSubmit = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    setAuthLoading(true);
-
-    const endpoint = authMode === 'register' ? 'http://127.0.0.1:8000/api/auth/register' : 'http://127.0.0.1:8000/api/auth/login';
-    const payload = authMode === 'register'
-      ? { username: authUsername, display_name: authDisplayName, password: authPassword }
-      : { username: authUsername, password: authPassword };
-
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || 'Authentication failed');
-      }
-
-      const activeUserObj = {
-        user_id: data.user_id,
-        user_name: data.display_name,
-        handle: data.username,
-      };
-
-      setCurrentUser(activeUserObj);
-      setShowAuthModal(false);
-      setAuthUsername('');
-      setAuthDisplayName('');
-      setAuthPassword('');
-    } catch (err) {
-      setAuthError(err.message);
-    } finally {
-      setAuthLoading(false);
+  const handleLogout = () => {
+    localStorage.removeItem('cp_active_user');
+    setCurrentUser(null);
+    setShowAuthModal(false);
+    if (currentView === 'profile') {
+      setCurrentView('problems');
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('cp_active_user');
-    setCurrentUser(DEFAULT_USER);
+  const handleProblemClick = (slug) => {
+    if (!currentUser) {
+      setShowAuthModal(true);
+      return;
+    }
+    setSelectedProblemSlug(slug);
+    setActiveContestId(null);
+    setCurrentView('problem_workspace');
   };
 
   const handleQuickUpload = async () => {
@@ -166,7 +127,7 @@ export default function App() {
     }
   };
 
-  const topicsList = ['All Topics', 'Array', 'String', 'Hash Table', 'Math', 'Dynamic Programming', 'Simulation'];
+  const topicsList = ['All Topics', 'Array', 'String', 'Hash Table', 'Math', 'Dynamic Programming', 'Simulation', 'Two Pointers'];
 
   const filteredProblems = problems.filter((p) => {
     const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -181,33 +142,40 @@ export default function App() {
       <header className="border-b border-[#282828] bg-[#1a1a1a] px-6 py-2.5 sticky top-0 z-40">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-8">
-            <div className="flex items-center space-x-2 font-extrabold text-sm text-amber-500 cursor-pointer" onClick={() => setCurrentView('problems')}>
+            <div className="flex items-center space-x-2 font-extrabold text-sm text-indigo-400 cursor-pointer" onClick={() => setCurrentView('problems')}>
               <span className="text-lg">⚡</span>
-              <span className="text-white tracking-tight">Code<span className="text-amber-500">Arena</span></span>
+              <span className="text-white tracking-tight">Code<span className="text-indigo-400">Arena</span></span>
             </div>
 
             <nav className="flex items-center space-x-6 text-xs font-semibold">
               <button
                 onClick={() => { setCurrentView('problems'); setSelectedProblemSlug(null); }}
-                className={`transition-colors cursor-pointer ${currentView === 'problems' || currentView === 'problem_workspace' ? 'text-white border-b-2 border-amber-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`transition-colors cursor-pointer ${currentView === 'problems' || currentView === 'problem_workspace' ? 'text-white border-b-2 border-indigo-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
               >
                 Problems
               </button>
               <button
                 onClick={() => { setCurrentView('contests'); setSelectedProblemSlug(null); }}
-                className={`transition-colors cursor-pointer ${currentView === 'contests' ? 'text-white border-b-2 border-amber-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`transition-colors cursor-pointer ${currentView === 'contests' ? 'text-white border-b-2 border-indigo-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
               >
                 Contests
               </button>
               <button
-                onClick={() => { setCurrentView('profile'); setSelectedProblemSlug(null); }}
-                className={`transition-colors cursor-pointer ${currentView === 'profile' ? 'text-white border-b-2 border-amber-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
+                onClick={() => {
+                  if (!currentUser) {
+                    setShowAuthModal(true);
+                  } else {
+                    setCurrentView('profile');
+                    setSelectedProblemSlug(null);
+                  }
+                }}
+                className={`transition-colors cursor-pointer ${currentView === 'profile' ? 'text-white border-b-2 border-indigo-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
               >
                 Profile
               </button>
               <button
                 onClick={() => { setCurrentView('quick_scan'); setSelectedProblemSlug(null); }}
-                className={`transition-colors cursor-pointer ${currentView === 'quick_scan' ? 'text-white border-b-2 border-amber-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
+                className={`transition-colors cursor-pointer ${currentView === 'quick_scan' ? 'text-white border-b-2 border-indigo-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
               >
                 Integrity Scanner
               </button>
@@ -215,18 +183,17 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-4 text-xs">
-            <div className="flex items-center space-x-1 text-amber-500 font-mono font-bold bg-[#262626] px-2.5 py-1 rounded-full border border-[#333]">
-              <Flame className="w-3.5 h-3.5 fill-amber-500" />
+            <div className="flex items-center space-x-1 text-amber-400 font-mono font-bold bg-[#262626] px-2.5 py-1 rounded-full border border-[#333]">
+              <Flame className="w-3.5 h-3.5 fill-amber-400" />
               <span>0</span>
             </div>
 
-            {/* User Account Controls */}
-            <div className="flex items-center space-x-2">
+            {currentUser ? (
               <button
                 onClick={() => setShowAuthModal(true)}
                 className="flex items-center space-x-2 bg-[#262626] hover:bg-[#333] border border-[#333] px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
               >
-                <div className="w-5 h-5 rounded-full bg-amber-600 text-white font-bold text-[10px] flex items-center justify-center">
+                <div className="w-5 h-5 rounded-full bg-indigo-600 text-white font-bold text-[10px] flex items-center justify-center">
                   {currentUser.user_name.charAt(0)}
                 </div>
                 <div className="text-left">
@@ -234,15 +201,23 @@ export default function App() {
                   <span className="text-[10px] font-mono text-slate-500 block leading-tight">{currentUser.handle}</span>
                 </div>
               </button>
-            </div>
+            ) : (
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-3.5 py-1.5 rounded-xl cursor-pointer transition-colors shadow-sm"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Sign In</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Main Page Content */}
+      {/* Main Page Body */}
       <main className="max-w-6xl mx-auto p-6 md:p-8">
         
-        {/* VIEW 1: Problems Table */}
+        {/* VIEW 1: Problems Catalog */}
         {currentView === 'problems' && (
           <div className="space-y-6">
             
@@ -271,11 +246,11 @@ export default function App() {
                 placeholder="Search questions..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-[#1e1e1e] border border-[#2e2e2e] rounded-xl pl-9 pr-4 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-amber-500"
+                className="w-full bg-[#1e1e1e] border border-[#2e2e2e] rounded-xl pl-9 pr-4 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
               />
             </div>
 
-            {/* Problem Table */}
+            {/* Problems Table */}
             <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-2xl overflow-hidden shadow-xl">
               {loadingProblems ? (
                 <div className="p-12 text-center text-xs text-slate-500">
@@ -300,11 +275,11 @@ export default function App() {
                     {filteredProblems.map((prob, idx) => (
                       <tr
                         key={prob.problem_id}
-                        onClick={() => { setSelectedProblemSlug(prob.slug); setCurrentView('problem_workspace'); }}
+                        onClick={() => handleProblemClick(prob.slug)}
                         className="hover:bg-[#252525] transition-colors cursor-pointer group"
                       >
                         <td className="py-3.5 px-4 text-center">
-                          {prob.is_solved ? (
+                          {currentUser && prob.is_solved ? (
                             <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" />
                           ) : (
                             <span className="text-slate-700 font-mono">-</span>
@@ -312,7 +287,7 @@ export default function App() {
                         </td>
 
                         <td className="py-3.5 px-4">
-                          <span className="font-semibold text-slate-200 group-hover:text-amber-400 transition-colors">
+                          <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors">
                             {idx + 1}. {prob.title}
                           </span>
                         </td>
@@ -330,7 +305,7 @@ export default function App() {
                         </td>
 
                         <td className="py-3.5 px-4 text-right">
-                          <button className="inline-flex items-center space-x-1 text-slate-400 group-hover:text-amber-400 transition-colors">
+                          <button className="inline-flex items-center space-x-1 text-slate-400 group-hover:text-indigo-400 transition-colors">
                             <span>Solve</span>
                             <ArrowRight className="w-3.5 h-3.5" />
                           </button>
@@ -352,6 +327,7 @@ export default function App() {
             contestId={activeContestId}
             contestTitle={activeContestTitle}
             currentUser={currentUser}
+            onRequestAuth={() => setShowAuthModal(true)}
             onBack={() => {
               if (activeContestId) setCurrentView('contests');
               else setCurrentView('problems');
@@ -365,7 +341,12 @@ export default function App() {
         {currentView === 'contests' && (
           <ContestHub
             currentUser={currentUser}
+            onRequestAuth={() => setShowAuthModal(true)}
             onSelectContestProblem={(slug, cid, title) => {
+              if (!currentUser) {
+                setShowAuthModal(true);
+                return;
+              }
               setSelectedProblemSlug(slug);
               setActiveContestId(cid);
               setActiveContestTitle(title);
@@ -378,6 +359,7 @@ export default function App() {
         {currentView === 'profile' && (
           <ProfileDashboard
             currentUser={currentUser}
+            onRequestAuth={() => setShowAuthModal(true)}
             onSelectProblem={(slug) => {
               setSelectedProblemSlug(slug);
               setCurrentView('problem_workspace');
@@ -389,7 +371,7 @@ export default function App() {
         {currentView === 'quick_scan' && (
           <div className="space-y-6">
             <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-2xl p-8 space-y-4">
-              <div className="border-2 border-dashed border-[#3a3a3a] hover:border-amber-500/60 transition-colors rounded-xl p-8 text-center flex flex-col items-center justify-center space-y-3 cursor-pointer relative bg-[#141414]">
+              <div className="border-2 border-dashed border-[#3a3a3a] hover:border-indigo-500/60 transition-colors rounded-xl p-8 text-center flex flex-col items-center justify-center space-y-3 cursor-pointer relative bg-[#141414]">
                 <input 
                   type="file" 
                   multiple 
@@ -397,7 +379,7 @@ export default function App() {
                   onChange={(e) => { setSelectedFiles(Array.from(e.target.files)); setError(''); }}
                   className="absolute inset-0 opacity-0 cursor-pointer"
                 />
-                <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl">
+                <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl">
                   <Upload className="w-6 h-6" />
                 </div>
                 <div>
@@ -416,7 +398,7 @@ export default function App() {
               <button
                 onClick={handleQuickUpload}
                 disabled={analyzing || selectedFiles.length === 0}
-                className="w-full bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer"
+                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer"
               >
                 {analyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Run Forensic Scan</span>}
               </button>
@@ -431,7 +413,7 @@ export default function App() {
                     <div key={idx} className="py-3 flex items-center justify-between text-xs">
                       <span>{comp.file_a} & {comp.file_b}</span>
                       <div className="flex items-center space-x-3">
-                        <span className="font-mono text-amber-400 font-bold">{comp.similarity_score}% Match</span>
+                        <span className="font-mono text-indigo-400 font-bold">{comp.similarity_score}% Match</span>
                         <button onClick={() => setActiveComparison(comp)} className="text-slate-400 hover:text-white underline cursor-pointer">Diff</button>
                       </div>
                     </div>
@@ -444,116 +426,17 @@ export default function App() {
 
       </main>
 
-      {/* Login / Register / Account Modal */}
+      {/* Auth Modal */}
       {showAuthModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
-            
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-[#2a2a2a] pb-3">
-              <div className="flex items-center space-x-2">
-                <User className="w-5 h-5 text-amber-500" />
-                <h3 className="text-base font-bold text-white">
-                  {authMode === 'login' ? 'Account Login' : 'Create New Account'}
-                </h3>
-              </div>
-              <button onClick={() => setShowAuthModal(false)} className="text-xs text-slate-400 hover:text-white">
-                ✕
-              </button>
-            </div>
-
-            {/* Current Active Account Card */}
-            <div className="bg-[#141414] border border-[#2a2a2a] p-3.5 rounded-xl flex items-center justify-between">
-              <div>
-                <span className="text-[10px] text-slate-500 uppercase font-bold block">Current Session</span>
-                <span className="text-xs font-bold text-slate-200">{currentUser.user_name}</span>
-                <span className="text-[10px] font-mono text-slate-400 block">{currentUser.handle}</span>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Log Out</span>
-              </button>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleAuthSubmit} className="space-y-3">
-              {authError && (
-                <div className="p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs">
-                  {authError}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Username (Handle)</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. suman or alex"
-                  value={authUsername}
-                  onChange={(e) => setAuthUsername(e.target.value)}
-                  className="w-full bg-[#141414] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-amber-500 font-mono"
-                />
-              </div>
-
-              {authMode === 'register' && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Full Display Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Suman Panigrahi"
-                    value={authDisplayName}
-                    onChange={(e) => setAuthDisplayName(e.target.value)}
-                    className="w-full bg-[#141414] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Password</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  className="w-full bg-[#141414] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={authLoading}
-                className="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold py-2 rounded-lg text-xs transition-colors cursor-pointer"
-              >
-                {authLoading ? 'Authenticating...' : authMode === 'login' ? 'Sign In' : 'Create Account'}
-              </button>
-            </form>
-
-            {/* Toggle Login/Register */}
-            <div className="text-center pt-2 border-t border-[#2a2a2a] text-xs text-slate-400">
-              {authMode === 'login' ? (
-                <p>
-                  Don't have an account?{' '}
-                  <button onClick={() => { setAuthMode('register'); setAuthError(''); }} className="text-amber-400 hover:underline font-semibold">
-                    Sign up
-                  </button>
-                </p>
-              ) : (
-                <p>
-                  Already have an account?{' '}
-                  <button onClick={() => { setAuthMode('login'); setAuthError(''); }} className="text-amber-400 hover:underline font-semibold">
-                    Sign in
-                  </button>
-                </p>
-              )}
-            </div>
-
-          </div>
-        </div>
+        <AuthModal
+          currentUser={currentUser}
+          onLoginSuccess={(user) => {
+            setCurrentUser(user);
+            setShowAuthModal(false);
+          }}
+          onLogout={handleLogout}
+          onClose={() => setShowAuthModal(false)}
+        />
       )}
 
       {/* Diff Viewer Modal */}

@@ -169,8 +169,11 @@ def login(req: LoginRequest):
 # --- Profile Stats API ---
 
 @app.get("/api/users/{user_id}/profile", response_model=UserProfileStats)
-def get_user_profile(user_id: str, user_name: str = "Suman", handle: str = "@suman"):
-    return repo.get_user_profile_stats(user_id, user_name, handle)
+def get_user_profile(user_id: str, user_name: Optional[str] = None, handle: Optional[str] = None):
+    try:
+        return repo.get_user_profile_stats(user_id, fallback_name=user_name, fallback_handle=handle)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate profile stats: {str(e)}")
 
 
 # --- Contest API Endpoints ---
@@ -301,9 +304,9 @@ def register_for_contest(contest_id: str, user_id: str = "std_suman_01", user_na
 # --- Problem Platform Endpoints ---
 
 @app.get("/api/problems", response_model=List[ProblemSummaryResponse])
-def list_problems(user_id: Optional[str] = "std_suman_01"):
+def list_problems(user_id: Optional[str] = None):
     problems = repo.list_problems()
-    user_subs = repo.get_user_submissions(user_id) if user_id else []
+    user_subs = repo.get_user_submissions(user_id) if (user_id and user_id != 'null') else []
     solved_ids = set(s.problem_id for s in user_subs if s.execution_result.status == "Accepted")
 
     return [

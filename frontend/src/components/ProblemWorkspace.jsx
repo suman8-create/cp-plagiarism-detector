@@ -38,8 +38,8 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
   // Time tracking ref
   const startTimeRef = useRef(Date.now());
 
-  const activeUserId = currentUser?.user_id || 'std_suman_01';
-  const activeUserName = currentUser?.user_name || 'Suman';
+   const activeUserId = currentUser?.user_id || 'guest_user';
+   const activeUserName = currentUser?.user_name || 'Guest';
 
   const fetchProblem = async () => {
     try {
