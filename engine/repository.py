@@ -1,6 +1,7 @@
 # engine/repository.py
 
 import hashlib
+import io
 import json
 import os
 import re
@@ -8,19 +9,25 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
+
 from engine.models import (
     Contest,
+    ContestAuditReport,
     ContestLeaderboardResponse,
     ContestParticipant,
+    ContestSimilarityMatrix,
     ContestStatus,
+    Example,
     ExecutionResult,
     LeaderboardProblemCell,
     LeaderboardRow,
     Problem,
     ProblemSummaryResponse,
     Submission,
-    SubmissionRecordResponse,  # <-- Added here
+    SubmissionRecordResponse,
+    SuspectPair,
     TestCase,
+    User,
     UserProfileStats,
 )
 
@@ -47,6 +54,7 @@ class AssessmentRepository:
         return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
     def _init_db(self):
+        now_str = datetime.now(timezone.utc).isoformat()
         with self._get_conn() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -54,9 +62,17 @@ class AssessmentRepository:
                     username TEXT UNIQUE NOT NULL,
                     display_name TEXT NOT NULL,
                     password_hash TEXT NOT NULL,
+                    role TEXT DEFAULT 'participant',
                     created_at TEXT
                 )
             """)
+
+            # Auto-migrate: ensure 'role' column exists if DB was created earlier
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'participant'")
+            except Exception:
+                pass  # Column already exists
+
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS problems (
                     problem_id TEXT PRIMARY KEY,
@@ -75,6 +91,7 @@ class AssessmentRepository:
                     created_at TEXT
                 )
             """)
+
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS submissions (
                     submission_id TEXT PRIMARY KEY,
@@ -90,6 +107,7 @@ class AssessmentRepository:
                     submitted_at TEXT
                 )
             """)
+
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS contests (
                     contest_id TEXT PRIMARY KEY,
@@ -102,6 +120,22 @@ class AssessmentRepository:
                     created_at TEXT
                 )
             """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS contest_audits (
+                    contest_id TEXT PRIMARY KEY,
+                    report_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+
+            # Seed Default Admin Account
+            admin_hash = hashlib.sha256("admin123".encode("utf-8")).hexdigest()
+            conn.execute(
+                """INSERT OR REPLACE INTO users (user_id, username, password_hash, display_name, role, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                ("admin_root_01", "admin", admin_hash, "Chief Auditor", "admin", now_str),
+            )
             conn.commit()
 
     def _generate_slug(self, title: str) -> str:
@@ -533,6 +567,17 @@ class AssessmentRepository:
                     target_contest_id = c.contest_id
                     break
 
+        # Convert execution_result to clean dict for Pydantic instantiation
+        if execution_result is not None:
+            if hasattr(execution_result, "model_dump"):
+                exec_dict = execution_result.model_dump()
+            elif isinstance(execution_result, dict):
+                exec_dict = execution_result
+            else:
+                exec_dict = {}
+        else:
+            exec_dict = {}
+
         sub = Submission(
             submission_id=submission_id,
             problem_id=canonical_prob_id,
@@ -543,7 +588,7 @@ class AssessmentRepository:
             source_code=source_code,
             contest_id=target_contest_id,
             time_taken_seconds=time_taken_seconds,
-            execution_result=execution_result or ExecutionResult(),
+            execution_result=exec_dict,
             submitted_at=now,
         )
 
@@ -560,7 +605,7 @@ class AssessmentRepository:
                     sub.source_code,
                     sub.contest_id,
                     sub.time_taken_seconds,
-                    json_dump_helper(sub.execution_result.model_dump()),
+                    json_dump_helper(exec_dict),
                     sub.submitted_at.isoformat(),
                 ),
             )
@@ -571,7 +616,7 @@ class AssessmentRepository:
                     if user_id not in contest.participants:
                         contest.participants[user_id] = ContestParticipant(user_id=user_id, user_name=user_name)
                     part = contest.participants[user_id]
-                    if execution_result and execution_result.status == "Accepted":
+                    if sub.execution_result and sub.execution_result.status == "Accepted":
                         if canonical_prob_id not in part.solved_problem_ids:
                             part.solved_problem_ids.append(canonical_prob_id)
                             part.score += 100
@@ -641,13 +686,12 @@ class AssessmentRepository:
                 exec_dict = json.loads(exec_res_raw)
             elif isinstance(exec_res_raw, dict):
                 exec_dict = exec_res_raw
+            elif hasattr(exec_res_raw, "model_dump"):
+                exec_dict = exec_res_raw.model_dump()
             else:
                 exec_dict = {}
         except Exception:
             exec_dict = {}
-
-        # Ensure execution_result is never None
-        exec_obj = ExecutionResult(**exec_dict) if exec_dict else ExecutionResult()
 
         submitted_at_val = r.get("submitted_at")
         if isinstance(submitted_at_val, str):
@@ -670,7 +714,7 @@ class AssessmentRepository:
             source_code=str(r.get("source_code", "")),
             contest_id=r.get("contest_id"),
             time_taken_seconds=float(r.get("time_taken_seconds") or 0.0),
-            execution_result=exec_obj,
+            execution_result=exec_dict,
             submitted_at=sub_dt,
         )
 
@@ -712,30 +756,61 @@ class AssessmentRepository:
             row = conn.execute("SELECT * FROM contests WHERE contest_id = ?", (contest_id,)).fetchone()
             if not row:
                 return None
-            
-            parts_raw = json.loads(row["participants"] or "{}")
-            participants = {
-                uid: ContestParticipant(
-                    user_id=p["user_id"],
-                    user_name=p["user_name"],
-                    registered_at=datetime.fromisoformat(p["registered_at"]) if isinstance(p["registered_at"], str) else p["registered_at"],
-                    score=p["score"],
-                    penalty_time_sec=p["penalty_time_sec"],
-                    solved_problem_ids=p.get("solved_problem_ids", []),
-                    solved_timestamps=p.get("solved_timestamps", {}),
-                )
-                for uid, p in parts_raw.items()
-            }
+
+            try:
+                parts_raw = json.loads(row["participants"] or "{}")
+            except Exception:
+                parts_raw = {}
+
+            participants = {}
+            for uid, p in parts_raw.items():
+                if isinstance(p, dict):
+                    reg_val = p.get("registered_at")
+                    if isinstance(reg_val, str):
+                        try:
+                            reg_dt = datetime.fromisoformat(reg_val)
+                        except Exception:
+                            reg_dt = datetime.now(timezone.utc)
+                    elif isinstance(reg_val, datetime):
+                        reg_dt = reg_val
+                    else:
+                        reg_dt = datetime.now(timezone.utc)
+
+                    participants[uid] = ContestParticipant(
+                        user_id=str(p.get("user_id", uid)),
+                        user_name=str(p.get("user_name", "Competitor")),
+                        score=int(p.get("score", 0)),
+                        penalty_time_sec=float(p.get("penalty_time_sec") or 0.0),
+                        solved_problem_ids=p.get("solved_problem_ids", []),
+                        solved_timestamps=p.get("solved_timestamps", {}),
+                        disqualified=bool(p.get("disqualified", False)),
+                        disqualification_reason=p.get("disqualification_reason"),
+                    )
+
+            # Safe datetime parsing for contest start_time & created_at
+            st_raw = row["start_time"]
+            start_time = datetime.fromisoformat(st_raw) if isinstance(st_raw, str) else st_raw
+
+            ct_raw = row.get("created_at") if hasattr(row, "get") else row["created_at"]
+            if isinstance(ct_raw, str):
+                try:
+                    created_at = datetime.fromisoformat(ct_raw)
+                except Exception:
+                    created_at = datetime.now(timezone.utc)
+            elif isinstance(ct_raw, datetime):
+                created_at = ct_raw
+            else:
+                created_at = datetime.now(timezone.utc)
 
             return Contest(
-                contest_id=row["contest_id"],
-                title=row["title"],
-                description=row["description"],
-                start_time=datetime.fromisoformat(row["start_time"]),
-                duration_minutes=row["duration_minutes"],
+                contest_id=str(row["contest_id"]),
+                title=str(row["title"]),
+                description=str(row["description"] or ""),
+                start_time=start_time,
+                duration_minutes=int(row["duration_minutes"] or 120),
                 problem_ids=json.loads(row["problem_ids"] or "[]"),
                 participants=participants,
-                created_at=datetime.fromisoformat(row["created_at"]),
+                created_at=created_at,
             )
 
     def list_contests(self) -> List[Contest]:
@@ -869,8 +944,6 @@ class AssessmentRepository:
 
     # --- Profile & Dynamic Skills Aggregation ---
 
-    # In engine/repository.py:
-
     def get_user_profile_stats(self, user_id: str, fallback_name: Optional[str] = None, fallback_handle: Optional[str] = None) -> UserProfileStats:
         user_name = fallback_name or "Competitor"
         handle = fallback_handle or f"@{user_id}"
@@ -977,4 +1050,86 @@ class AssessmentRepository:
             total_submissions=total_sub_count,
             skills_breakdown=skills_breakdown,
             recent_submissions=recent_submissions,
+        )
+    def save_contest_audit_report(self, contest_id: str, report: ContestAuditReport):
+        now_str = datetime.now(timezone.utc).isoformat()
+        with self._get_conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO contest_audits VALUES (?, ?, ?)",
+                (contest_id, json_dump_helper(report.model_dump()), now_str),
+            )
+            conn.commit()
+
+    def get_contest_audit_report(self, contest_id: str) -> Optional[ContestAuditReport]:
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT report_json FROM contest_audits WHERE contest_id = ?", (contest_id,)).fetchone()
+            if not row:
+                return None
+            try:
+                data = json.loads(row["report_json"])
+                return ContestAuditReport(**data)
+            except Exception:
+                return None
+
+    # In engine/repository.py inside class AssessmentRepository:
+
+    def apply_admin_decision(
+        self,
+        contest_id: str,
+        problem_id: str,
+        user_id: str,
+        partner_user_id: Optional[str],
+        action: str,
+        reason: str,
+        admin_id: str = "admin_root_01"
+    ) -> ContestAuditReport:
+        now_str = datetime.now(timezone.utc).isoformat()
+        
+        # 1. Update the Audit Report record
+        report = self.get_contest_audit_report(contest_id)
+        if report:
+            for pair in report.suspect_pairs:
+                if pair.problem_id == problem_id:
+                    if (pair.user_a_id == user_id and pair.user_b_id == partner_user_id) or \
+                       (pair.user_b_id == user_id and pair.user_a_id == partner_user_id) or \
+                       (not partner_user_id and (pair.user_a_id == user_id or pair.user_b_id == user_id)):
+                        pair.status = action
+            self.save_contest_audit_report(contest_id, report)
+
+        # 2. If action is DISQUALIFY, strip scores and recalculate leaderboard
+        with self._get_conn() as conn:
+            contest = self.get_contest(contest_id)
+            if contest and user_id in contest.participants:
+                part = contest.participants[user_id]
+                if action == "DISQUALIFIED":
+                    part.disqualified = True
+                    part.disqualification_reason = reason
+                    part.score = 0
+                    part.penalty_time_sec = 999999.0
+                elif action == "CLEARED":
+                    part.disqualified = False
+                    part.disqualification_reason = None
+                    # Restore score based on accepted submissions
+                    user_subs = self.get_user_submissions(user_id)
+                    accepted_pids = set()
+                    for s in user_subs:
+                        if s.contest_id == contest_id and s.execution_result and s.execution_result.status == "Accepted":
+                            accepted_pids.add(s.problem_id)
+                    part.solved_problem_ids = list(accepted_pids)
+                    part.score = len(accepted_pids) * 100
+
+                parts_data = {uid: p.model_dump() for uid, p in contest.participants.items()}
+                conn.execute(
+                    "UPDATE contests SET participants = ? WHERE contest_id = ?",
+                    (json_dump_helper(parts_data), contest.contest_id)
+                )
+                conn.commit()
+
+        return report or ContestAuditReport(
+            contest_id=contest_id,
+            contest_title="Contest",
+            audited_at=now_str,
+            total_participants=0,
+            total_submissions_audited=0,
+            flagged_pairs_count=0
         )

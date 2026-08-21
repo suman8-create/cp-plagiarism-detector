@@ -65,15 +65,15 @@ class ContestStatus(str, Enum):
     LIVE = "Live"
     FINISHED = "Finished"
 
-
 class ContestParticipant(BaseModel):
     user_id: str
     user_name: str
-    registered_at: datetime = Field(default_factory=get_utc_now)
     score: int = 0
     penalty_time_sec: float = 0.0
     solved_problem_ids: List[str] = Field(default_factory=list)
     solved_timestamps: Dict[str, str] = Field(default_factory=dict)
+    disqualified: bool = False
+    disqualification_reason: Optional[str] = None
 
 
 class Contest(BaseModel):
@@ -221,18 +221,16 @@ class LeaderboardRow(BaseModel):
     user_id: str
     user_name: str
     score: int
-    problems_solved: int
-    total_penalty_min: float
-    problem_results: Dict[str, LeaderboardProblemCell]
+    penalty_time_sec: float
+    solved_problems: List[str] = Field(default_factory=list)
+    disqualified: bool = False
+    disqualification_reason: Optional[str] = None
 
 
 class ContestLeaderboardResponse(BaseModel):
     contest_id: str
-    title: str
-    status: str
-    is_locked: bool
-    problems: List[ProblemSummaryResponse]
-    standings: List[LeaderboardRow]
+    contest_title: str
+    rows: List[LeaderboardRow] = Field(default_factory=list)
 
 
 class UserProfileStats(BaseModel):
@@ -251,3 +249,125 @@ class UserProfileStats(BaseModel):
     total_submissions: int
     skills_breakdown: Dict[str, int] = Field(default_factory=dict)
     recent_submissions: List[SubmissionRecordResponse] = Field(default_factory=list)
+
+
+class IntegrityReport(BaseModel):
+    similarity_score: float = 0.0
+    matched_submission_id: Optional[str] = None
+    matched_user_name: Optional[str] = None
+    ai_probability: float = 0.0
+    ai_risk_level: str = "Low"  # "Clean" | "Low" | "Medium" | "High"
+    verdict: str = "Clean"       # "Clean" | "Suspicious Similarity" | "High AI Probability" | "Plagiarized"
+    forensic_flags: List[str] = Field(default_factory=list)
+
+
+# Update ExecutionResult to include integrity_report:
+class ExecutionResult(BaseModel):
+    status: str = "Pending"
+    passed_test_cases: int = 0
+    total_test_cases: int = 0
+    execution_time_ms: float = 0.0
+    memory_mb: float = 46.38
+    stdout: str = ""
+    stderr: str = ""
+    error_message: Optional[str] = None
+    integrity_report: Optional[IntegrityReport] = None
+
+
+# Update SubmissionRecordResponse to include integrity_report:
+class SubmissionRecordResponse(BaseModel):
+    submission_id: str
+    problem_id: str
+    problem_title: str = ""
+    user_id: str
+    user_name: str
+    status: str
+    passed_test_cases: int
+    total_test_cases: int
+    execution_time_ms: float
+    memory_mb: float = 46.38
+    time_taken_seconds: float = 0.0
+    source_code: str = ""
+    error_message: Optional[str] = None
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
+    integrity_report: Optional[IntegrityReport] = None
+    submitted_at: str
+
+class SubmitSolutionRequest(BaseModel):
+    source_code: str
+    user_id: str
+    user_name: str = "Competitor"
+    contest_id: Optional[str] = None
+    time_taken_seconds: float = 0.0
+
+class SuspectPair(BaseModel):
+    user_a_id: str
+    user_a_name: str
+    user_b_id: str
+    user_b_name: str
+    problem_id: str
+    problem_title: str
+    ast_similarity: float
+    time_delta_seconds: float
+    suspicion_score: float  # Composite score incorporating AST similarity + temporal proximity
+    status: str = "FLAGGED"  # "FLAGGED" | "CONFIRMED" | "DISMISSED" | "DISQUALIFIED"
+    user_a_sub_id: str
+    user_b_sub_id: str
+    user_a_code: str
+    user_b_code: str
+    flags: List[str] = Field(default_factory=list)
+
+
+class ContestSimilarityMatrix(BaseModel):
+    problem_id: str
+    problem_title: str
+    participant_ids: List[str] = Field(default_factory=list)
+    participant_names: List[str] = Field(default_factory=list)
+    matrix: List[List[float]] = Field(default_factory=list)  # N x N pairwise similarity matrix
+
+
+class ContestAuditReport(BaseModel):
+    contest_id: str
+    contest_title: str
+    audited_at: str
+    total_participants: int
+    total_submissions_audited: int
+    flagged_pairs_count: int
+    similarity_matrices: List[ContestSimilarityMatrix] = Field(default_factory=list)
+    suspect_pairs: List[SuspectPair] = Field(default_factory=list)
+
+class AdminDecisionAction(str, Enum):
+    FLAG_FOR_REVIEW = "FLAGGED"
+    CONFIRM_COLLUSION = "CONFIRMED"
+    DISQUALIFY = "DISQUALIFIED"
+    CLEAR_FALSE_POSITIVE = "CLEARED"
+
+class AdminDecisionRequest(BaseModel):
+    contest_id: str
+    problem_id: str
+    user_id: str
+    partner_user_id: Optional[str] = None
+    action: AdminDecisionAction
+    reason: str = "Administrative review of code similarity and temporal metrics."
+    admin_id: str = "admin_root_01"
+
+class LeaderboardRankRecalcResponse(BaseModel):
+    contest_id: str
+    status: str
+    disqualified_users: List[str]
+    recalculated_leaderboard: List[ContestParticipant]
+    updated_at: str
+
+class Example(BaseModel):
+    input: str
+    output: str
+    explanation: Optional[str] = None 
+
+class User(BaseModel):
+    user_id: str
+    username: str
+    display_name: str
+    password_hash: str
+    role: str = "participant"  # "participant" | "admin"
+    created_at: Optional[datetime] = None

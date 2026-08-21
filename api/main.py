@@ -3,30 +3,52 @@
 import io
 import zipfile
 import traceback
+import hashlib
+import csv
+import io
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from engine.models import AdminDecisionRequest
+
 
 from engine.detector import PlagiarismDetector
 from engine.forensics import LLMForensicEngine
 from engine.runner import CppExecutionEngine
 from engine.models import (
+    AdminDecisionRequest,
+    Contest,
+    ContestAuditReport,
     ContestDetailResponse,
     ContestLeaderboardResponse,
+    ContestParticipant,
+    ContestSimilarityMatrix,
     ContestStatus,
     ContestSummaryResponse,
-    CreateContestRequest,
-    CreateProblemRequest,
+    ExecutionResult,
+    LeaderboardProblemCell,
+    LeaderboardRow,
+    Problem,
     ProblemDetailResponse,
     ProblemSummaryResponse,
+    Submission,
     SubmissionRecordResponse,
+    SubmitSolutionRequest,
+    SuspectPair,
     TestCase,
-    TestCaseSchema,
+    User,
     UserProfileStats,
 )
+from engine.models import SubmitSolutionRequest
 from engine.repository import AssessmentRepository
+from engine.single_auditor import audit_single_submission
+from engine.runner import CppExecutionEngine
+from engine.repository import AssessmentRepository
+from engine.contest_auditor import audit_contest_batch
+from engine.models import ContestAuditReport
 
 app = FastAPI(
     title="Competitive Programming & Code Integrity Platform API",
@@ -38,6 +60,7 @@ detector_engine = PlagiarismDetector()
 forensic_engine = LLMForensicEngine()
 exec_runner = CppExecutionEngine()
 repo = AssessmentRepository()
+engine = CppExecutionEngine()
 
 app.add_middleware(
     CORSMiddleware,
@@ -128,6 +151,9 @@ class TemplateStatsResponse(BaseModel):
     frequency_threshold: float
     minimum_file_threshold: int
 
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str
 
 # --- Root & System Health ---
 
@@ -246,10 +272,45 @@ def get_contest(contest_id: str, user_id: str = "std_suman_01"):
 
 @app.get("/api/contests/{contest_id}/leaderboard", response_model=ContestLeaderboardResponse)
 def get_contest_leaderboard(contest_id: str):
-    board = repo.get_contest_leaderboard(contest_id)
-    if not board:
-        raise HTTPException(status_code=404, detail="Contest not found")
-    return board
+    contest = repo.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found.")
+
+    # Sort participants: active users by (-score, penalty), disqualified placed last
+    participants_list = list(contest.participants.values())
+    participants_list.sort(
+        key=lambda p: (
+            1 if p.disqualified else 0,
+            -p.score,
+            p.penalty_time_sec
+        )
+    )
+
+    rows = []
+    current_rank = 1
+    for idx, p in enumerate(participants_list):
+        rank_val = 0 if p.disqualified else current_rank
+        if not p.disqualified:
+            current_rank += 1
+
+        rows.append(
+            LeaderboardRow(
+                rank=rank_val,
+                user_id=p.user_id,
+                user_name=p.user_name,
+                score=p.score,
+                penalty_time_sec=round(p.penalty_time_sec, 2),
+                solved_problems=p.solved_problem_ids,
+                disqualified=p.disqualified,
+                disqualification_reason=p.disqualification_reason,
+            )
+        )
+
+    return ContestLeaderboardResponse(
+        contest_id=contest.contest_id,
+        contest_title=contest.title,
+        rows=rows,
+    )
 
 
 @app.post("/api/contests", response_model=ContestDetailResponse)
@@ -380,7 +441,7 @@ def run_sample_cases(problem_id_or_slug: str, req: CodeRunRequest):
     if not sample_cases:
         sample_cases = problem.test_cases[:1]
 
-    result = exec_runner.execute(
+    result = engine.execute(
         source_code=req.source_code,
         test_cases=sample_cases,
         time_limit_sec=problem.time_limit_sec,
@@ -399,76 +460,65 @@ def run_sample_cases(problem_id_or_slug: str, req: CodeRunRequest):
     )
 
 
-@app.post("/api/problems/{problem_id_or_slug}/submit", response_model=CodeExecutionResponse)
-def submit_solution(problem_id_or_slug: str, req: CodeRunRequest):
-    problem = repo.get_problem(problem_id_or_slug)
-    if not problem:
-        raise HTTPException(status_code=404, detail="Problem not found")
+@app.post("/api/problems/{problem_id_or_slug}/submit", response_model=SubmissionRecordResponse)
+def submit_solution(problem_id_or_slug: str, request: SubmitSolutionRequest):
+    try:
+        problem = repo.get_problem(problem_id_or_slug)
+        if not problem:
+            raise HTTPException(status_code=404, detail="Problem not found.")
 
-    if req.contest_id:
-        contest = repo.get_contest(req.contest_id)
-        if not contest:
-            raise HTTPException(status_code=404, detail="Contest not found")
-        if contest.status == ContestStatus.FINISHED:
-            raise HTTPException(status_code=400, detail="Contest has ended. Submissions are closed.")
-        if contest.status == ContestStatus.UPCOMING:
-            raise HTTPException(status_code=400, detail="Contest has not started yet.")
-
-    result = exec_runner.execute(
-        source_code=req.source_code,
-        test_cases=problem.test_cases,
-        time_limit_sec=problem.time_limit_sec,
-    )
-
-    submission = repo.save_submission(
-        problem_id=problem.problem_id,
-        user_id=req.user_id or "std_suman_01",
-        user_name=req.user_name or "Suman",
-        source_code=req.source_code,
-        time_taken_seconds=req.time_taken_seconds or 0.0,
-        execution_result=result,
-        contest_id=req.contest_id,
-    )
-
-    return CodeExecutionResponse(
-        submission_id=submission.submission_id,
-        status=result.status,
-        passed_test_cases=result.passed_test_cases,
-        total_test_cases=result.total_test_cases,
-        execution_time_ms=result.execution_time_ms,
-        memory_mb=46.38,
-        time_taken_seconds=submission.time_taken_seconds,
-        stdout=result.stdout,
-        stderr=result.stderr,
-        error_message=result.error_message,
-        submitted_at=submission.submitted_at.isoformat(),
-    )
-
-
-@app.get("/api/problems/{problem_id_or_slug}/submissions", response_model=List[SubmissionRecordResponse])
-def get_problem_submissions(problem_id_or_slug: str, user_id: Optional[str] = None):
-    submissions = repo.get_problem_submissions(problem_id_or_slug, user_id=user_id)
-    return [
-        SubmissionRecordResponse(
-            submission_id=s.submission_id,
-            problem_id=s.problem_id,
-            problem_title=s.problem_title or s.problem_id,
-            user_id=s.user_id,
-            user_name=s.user_name,
-            status=s.execution_result.status,
-            passed_test_cases=s.execution_result.passed_test_cases,
-            total_test_cases=s.execution_result.total_test_cases,
-            execution_time_ms=s.execution_result.execution_time_ms,
-            memory_mb=getattr(s.execution_result, "memory_mb", 46.38) or 46.38,
-            time_taken_seconds=s.time_taken_seconds,
-            source_code=s.source_code,
-            error_message=s.execution_result.error_message,
-            stdout=s.execution_result.stdout,
-            stderr=s.execution_result.stderr,
-            submitted_at=s.submitted_at.isoformat() if hasattr(s.submitted_at, "isoformat") else str(s.submitted_at),
+        # 1. Execute test cases
+        exec_result = engine.execute(
+            source_code=request.source_code,
+            test_cases=problem.test_cases,
+            time_limit_sec=problem.time_limit_sec,
         )
-        for s in submissions
-    ]
+
+        # 2. Run instant Single-Solution Integrity & Forensic Audit
+        all_problem_subs = repo.get_problem_submissions(problem.problem_id)
+        integrity_report = audit_single_submission(
+            source_code=request.source_code,
+            problem=problem,
+            existing_submissions=all_problem_subs,
+            current_user_id=request.user_id,
+        )
+        exec_result.integrity_report = integrity_report
+
+        # 3. Persist submission
+        saved_sub = repo.save_submission(
+            problem_id=problem.problem_id,
+            user_id=request.user_id,
+            user_name=request.user_name,
+            source_code=request.source_code,
+            time_taken_seconds=request.time_taken_seconds,
+            execution_result=exec_result,
+            contest_id=request.contest_id,
+        )
+
+        return SubmissionRecordResponse(
+            submission_id=saved_sub.submission_id,
+            problem_id=problem.problem_id,
+            problem_title=problem.title,
+            user_id=saved_sub.user_id,
+            user_name=saved_sub.user_name,
+            status=exec_result.status,
+            passed_test_cases=exec_result.passed_test_cases,
+            total_test_cases=exec_result.total_test_cases,
+            execution_time_ms=exec_result.execution_time_ms,
+            memory_mb=getattr(exec_result, "memory_mb", 46.38) or 46.38,
+            time_taken_seconds=saved_sub.time_taken_seconds,
+            source_code=saved_sub.source_code,
+            error_message=exec_result.error_message,
+            stdout=exec_result.stdout,
+            stderr=exec_result.stderr,
+            integrity_report=integrity_report,
+            submitted_at=saved_sub.submitted_at.isoformat() if hasattr(saved_sub.submitted_at, "isoformat") else str(saved_sub.submitted_at),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Submission processing error: {str(e)}")
 
 
 # --- Plagiarism & Forensics Endpoint ---
@@ -542,4 +592,129 @@ async def check_plagiarism(files: List[UploadFile] = File(...)):
         files_content=submissions,
         file_boilerplate_spans=formatted_boilerplate_spans,
         forensics=forensics_data,
+    )
+
+@app.post("/api/contests/{contest_id}/audit", response_model=ContestAuditReport)
+def trigger_contest_audit(contest_id: str):
+    contest = repo.get_contest(contest_id)
+    if not contest:
+        raise HTTPException(status_code=404, detail="Contest not found.")
+
+    # Fetch contest problems
+    problems = [repo.get_problem(pid) for pid in contest.problem_ids if repo.get_problem(pid)]
+
+    # Fetch all submissions for this contest
+    with repo._get_conn() as conn:
+        rows = conn.execute("SELECT * FROM submissions WHERE contest_id = ?", (contest_id,)).fetchall()
+        submissions = [repo._row_to_submission(r) for r in rows]
+
+    report = audit_contest_batch(contest, problems, submissions)
+    repo.save_contest_audit_report(contest_id, report)
+    return report
+
+
+@app.get("/api/contests/{contest_id}/audit", response_model=ContestAuditReport)
+def get_contest_audit(contest_id: str):
+    # Check if report already exists in DB
+    report = repo.get_contest_audit_report(contest_id)
+    if report:
+        return report
+    # If not audited yet, run it on the fly
+    return trigger_contest_audit(contest_id)
+
+@app.post("/api/admin/login")
+def admin_login(req: AdminLoginRequest):
+    with repo._get_conn() as conn:
+        pwd_hash = hashlib.sha256(req.password.encode("utf-8")).hexdigest()
+        row = conn.execute(
+            "SELECT * FROM users WHERE username = ? AND password_hash = ? AND role = 'admin'",
+            (req.username, pwd_hash),
+        ).fetchone()
+
+        if not row:
+            raise HTTPException(status_code=401, detail="Invalid admin credentials.")
+
+        return {
+            "status": "success",
+            "admin_id": row["user_id"],
+            "username": row["username"],
+            "display_name": row["display_name"],
+            "role": "admin",
+        }
+
+
+@app.get("/api/admin/contests", response_model=List[ContestSummaryResponse])
+def get_admin_contests():
+    contests = repo.list_contests()
+    res = []
+    for c in contests:
+        res.append(
+            ContestSummaryResponse(
+                contest_id=c.contest_id,
+                title=c.title,
+                description=c.description,
+                status=c.status.value,
+                start_time=c.start_time.isoformat(),
+                end_time=c.end_time.isoformat(),
+                duration_minutes=c.duration_minutes,
+                problem_count=len(c.problem_ids),
+                participant_count=len(c.participants),
+            )
+        )
+    return res
+
+@app.post("/api/admin/contests/decision")
+def record_admin_decision(req: AdminDecisionRequest):
+    updated_report = repo.apply_admin_decision(
+        contest_id=req.contest_id,
+        problem_id=req.problem_id,
+        user_id=req.user_id,
+        partner_user_id=req.partner_user_id,
+        action=req.action.value,
+        reason=req.reason,
+        admin_id=req.admin_id
+    )
+    return {
+        "status": "success",
+        "action_recorded": req.action.value,
+        "affected_user": req.user_id,
+        "report": updated_report
+    }
+
+@app.get("/api/admin/contests/{contest_id}/export/csv")
+def export_audit_csv(contest_id: str):
+    report = repo.get_contest_audit_report(contest_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="No audit report found for this contest.")
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # CSV Header
+    writer.writerow([
+        "Contest ID", "Problem", "User A (ID)", "User A (Name)", 
+        "User B (ID)", "User B (Name)", "AST Similarity (%)", 
+        "Time Delta (s)", "Suspicion Score", "Decision Status", "Flags"
+    ])
+
+    for p in report.suspect_pairs:
+        writer.writerow([
+            report.contest_id,
+            p.problem_title,
+            p.user_a_id,
+            p.user_a_name,
+            p.user_b_id,
+            p.user_b_name,
+            p.ast_similarity,
+            p.time_delta_seconds,
+            p.suspicion_score,
+            p.status,
+            "; ".join(p.flags)
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=audit_report_{contest_id}.csv"}
     )

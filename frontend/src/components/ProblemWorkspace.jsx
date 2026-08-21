@@ -18,7 +18,13 @@ import {
   Copy,
   Check,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  XCircle, 
+  AlertTriangle,
+  Eye, 
+  ShieldCheck, 
+  Bot, 
+  Sparkles
 } from 'lucide-react';
 import SubmissionModal from './SubmissionModal';
 
@@ -35,11 +41,10 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedSubmissionModal, setSelectedSubmissionModal] = useState(null);
 
-  // Time tracking ref
   const startTimeRef = useRef(Date.now());
 
-   const activeUserId = currentUser?.user_id || 'guest_user';
-   const activeUserName = currentUser?.user_name || 'Guest';
+  const activeUserId = currentUser?.user_id || 'guest_user';
+  const activeUserName = currentUser?.user_name || 'Guest';
 
   const fetchProblem = async () => {
     try {
@@ -126,6 +131,7 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
         passed_test_cases: data.passed_test_cases,
         total_test_cases: data.total_test_cases,
         execution_time_ms: data.execution_time_ms,
+        memory_mb: data.memory_mb,
         stdout: data.stdout,
         stderr: data.stderr,
         error_message: data.error_message,
@@ -146,7 +152,7 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
     setIsSubmitting(true);
     setConsoleOutput({
       status: 'Evaluating Solution',
-      message: 'Running against test case suite...'
+      message: 'Running test suite & forensic integrity checks...'
     });
 
     const elapsedSeconds = (Date.now() - startTimeRef.current) / 1000.0;
@@ -176,9 +182,11 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
         passed_test_cases: data.passed_test_cases,
         total_test_cases: data.total_test_cases,
         execution_time_ms: data.execution_time_ms,
+        memory_mb: data.memory_mb,
         stdout: data.stdout,
         stderr: data.stderr,
         error_message: data.error_message,
+        integrity_report: data.integrity_report,
         submitted_at: data.submitted_at,
       });
 
@@ -330,30 +338,36 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
             ) : (
               /* Submissions History List */
               <div className="space-y-2">
-                {submissionsList.map((sub) => (
-                  <div
-                    key={sub.submission_id}
-                    onClick={() => setSelectedSubmissionModal(sub)}
-                    className="p-3 bg-[#141414] border border-[#2a2a2a] rounded-xl flex items-center justify-between hover:border-emerald-500/50 cursor-pointer transition-all"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${getStatusBadge(sub.status)}`}>
-                          {sub.status}
-                        </span>
-                        <span className="font-mono text-[11px] text-slate-400">{sub.passed_test_cases}/{sub.total_test_cases} tests</span>
-                      </div>
-                      <p className="text-[10px] text-slate-500">
-                        {new Date(sub.submitted_at).toLocaleTimeString()} • Solved in {Math.round(sub.time_taken_seconds)}s
-                      </p>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-xs font-mono font-bold text-slate-200 block">{sub.execution_time_ms} ms</span>
-                      <span className="text-[10px] text-emerald-400 font-mono">View Details →</span>
-                    </div>
+                {submissionsList.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-500">
+                    No submissions recorded yet for this problem.
                   </div>
-                ))}
+                ) : (
+                  submissionsList.map((sub) => (
+                    <div
+                      key={sub.submission_id}
+                      onClick={() => setSelectedSubmissionModal(sub)}
+                      className="p-3 bg-[#141414] border border-[#2a2a2a] rounded-xl flex items-center justify-between hover:border-emerald-500/50 cursor-pointer transition-all"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${getStatusBadge(sub.status)}`}>
+                            {sub.status}
+                          </span>
+                          <span className="font-mono text-[11px] text-slate-400">{sub.passed_test_cases}/{sub.total_test_cases} tests</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500">
+                          {new Date(sub.submitted_at).toLocaleTimeString()} • Solved in {Math.round(sub.time_taken_seconds)}s
+                        </p>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-xs font-mono font-bold text-slate-200 block">{sub.execution_time_ms} ms</span>
+                        <span className="text-[10px] text-emerald-400 font-mono">View Details →</span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             )}
           </div>
@@ -382,7 +396,7 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
           </div>
 
           {/* Bottom Console Panel */}
-          <div className="h-44 bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl flex flex-col overflow-hidden">
+          <div className="h-64 bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl flex flex-col overflow-hidden">
             <div className="flex items-center justify-between border-b border-[#2a2a2a] bg-[#171717] px-4 py-2">
               <div className="flex items-center space-x-2">
                 <Terminal className="w-3.5 h-3.5 text-slate-400" />
@@ -405,36 +419,114 @@ export default function ProblemWorkspace({ problemSlug, contestId, contestTitle,
               )}
             </div>
 
-            <div className="p-3 overflow-y-auto flex-1 font-mono text-[11px] space-y-2 bg-[#141414] text-slate-300">
+            <div className="p-3.5 overflow-y-auto flex-1 font-mono text-[11px] space-y-3 bg-[#141414] text-slate-300">
               {consoleOutput ? (
-                <div className="space-y-1.5">
-                  <div className="flex items-center space-x-2">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${getStatusBadge(consoleOutput.status)}`}>
-                      {consoleOutput.status}
-                    </span>
-                    {consoleOutput.passed_test_cases !== undefined && (
-                      <span className="text-slate-400 text-[10px]">
-                        ({consoleOutput.passed_test_cases}/{consoleOutput.total_test_cases} test cases passed)
+                <div className="space-y-3">
+                  
+                  {/* Status & Metrics Bar */}
+                  <div className="flex items-center justify-between border-b border-[#222] pb-2">
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${getStatusBadge(consoleOutput.status)}`}>
+                        {consoleOutput.status}
                       </span>
-                    )}
-                    {consoleOutput.execution_time_ms !== undefined && (
-                      <span className="text-slate-500 text-[10px]">
-                        • {consoleOutput.execution_time_ms} ms
-                      </span>
-                    )}
+                      {consoleOutput.passed_test_cases !== undefined && (
+                        <span className="text-slate-400 text-[10px]">
+                          ({consoleOutput.passed_test_cases}/{consoleOutput.total_test_cases} test cases passed)
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center space-x-3 text-[10px] text-slate-400">
+                      {consoleOutput.execution_time_ms !== undefined && (
+                        <span>Runtime: <strong className="text-slate-200">{consoleOutput.execution_time_ms} ms</strong></span>
+                      )}
+                      {consoleOutput.memory_mb !== undefined && (
+                        <span>Memory: <strong className="text-slate-200">{consoleOutput.memory_mb} MB</strong></span>
+                      )}
+                    </div>
                   </div>
 
+                  {/* Single-Solution Integrity & Forensics Report Card */}
+                  {consoleOutput.integrity_report && (
+                    <div className="bg-[#18181b] border border-[#27272a] rounded-xl p-3 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5 text-indigo-400"/>
+                          <span className="text-[10px] font-bold text-slate-200 uppercase tracking-wider">
+                            Plagiarism & Forensic Analysis
+                          </span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                          consoleOutput.integrity_report.verdict === 'Clean'
+                            ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+                            : consoleOutput.integrity_report.verdict === 'Plagiarized'
+                            ? 'text-red-400 bg-red-500/10 border-red-500/30'
+                            : 'text-amber-400 bg-amber-500/10 border-amber-500/30'
+                        }`}>
+                          {consoleOutput.integrity_report.verdict}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[10px]">
+                        <div className="p-2 bg-[#121214] rounded-lg border border-[#27272a]">
+                          <span className="text-[9px] uppercase font-semibold text-slate-500 block">Corpus Similarity</span>
+                          <div className="flex items-center space-x-1.5 mt-0.5">
+                            <span className="text-sm font-bold font-mono text-slate-100">
+                              {consoleOutput.integrity_report.similarity_score}%
+                            </span>
+                            {consoleOutput.integrity_report.matched_user_name && (
+                              <span className="text-[9px] text-slate-400 truncate max-w-[120px]">
+                                (vs {consoleOutput.integrity_report.matched_user_name})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="p-2 bg-[#121214] rounded-lg border border-[#27272a]">
+                          <span className="text-[9px] uppercase font-semibold text-slate-500 block">AI Probability</span>
+                          <div className="flex items-center space-x-1.5 mt-0.5">
+                            <Bot className="w-3 h-3 text-indigo-400"/>
+                            <span className="text-sm font-bold font-mono text-indigo-400">
+                              {consoleOutput.integrity_report.ai_probability}%
+                            </span>
+                            <span className="text-[9px] text-slate-500">({consoleOutput.integrity_report.ai_risk_level} Risk)</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {consoleOutput.integrity_report.forensic_flags?.length > 0 && (
+                        <div className="pt-1.5 border-t border-[#27272a] space-y-1">
+                          <span className="text-[9px] uppercase font-semibold text-slate-500 block">Forensic Flags:</span>
+                          <div className="flex flex-wrap gap-1">
+                            {consoleOutput.integrity_report.forensic_flags.map((flag, idx) => (
+                              <span key={idx} className="px-1.5 py-0.5 rounded bg-[#121214] border border-[#2a2a2a] text-[9px] text-slate-300">
+                                • {flag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Standard Error / Compilation Diagnostics */}
                   {consoleOutput.error_message && (
-                    <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-red-300">
+                    <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-red-300 text-[10px]">
                       {consoleOutput.error_message}
                     </div>
                   )}
 
+                  {/* Program Stdout */}
                   {consoleOutput.stdout && (
-                    <div>
+                    <div className="text-[10px]">
                       <span className="text-slate-500">Output: </span>
                       <span className="text-emerald-300">{consoleOutput.stdout}</span>
                     </div>
+                  )}
+
+                  {/* Informational Message */}
+                  {consoleOutput.message && (
+                    <p className="text-slate-400 text-[10px]">{consoleOutput.message}</p>
                   )}
                 </div>
               ) : (

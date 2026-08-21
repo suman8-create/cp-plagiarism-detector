@@ -2,24 +2,27 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  Upload, 
-  FileCode, 
-  Sparkles, 
-  ArrowRight, 
-  RefreshCw, 
-  AlertCircle, 
-  ShieldCheck, 
-  Bot, 
   Flame, 
-  Search,
-  CheckCircle2,
-  LogIn
+  Trophy, 
+  Code2, 
+  User, 
+  ShieldCheck, 
+  Search, 
+  Upload, 
+  Layers, 
+  AlertCircle,
+  FileCode,
+  ArrowRight,
+  ShieldAlert
 } from 'lucide-react';
+
 import DiffViewer from './components/DiffViewer';
 import ProblemWorkspace from './components/ProblemWorkspace';
 import ContestHub from './components/ContestHub';
 import ProfileDashboard from './components/ProfileDashboard';
 import AuthModal from './components/AuthModal';
+import AdminDashboard from './components/AdminDashboard';
+import AdminLoginModal from './components/AdminLoginModal';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
@@ -31,7 +34,7 @@ export default function App() {
   });
 
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [currentView, setCurrentView] = useState('problems');
+  const [currentView, setCurrentView] = useState('problems'); // 'problems' | 'contests' | 'profile' | 'integrity' | 'problem_workspace' | 'admin'
   
   const [problems, setProblems] = useState([]);
   const [selectedTopic, setSelectedTopic] = useState('All Topics');
@@ -41,12 +44,16 @@ export default function App() {
   const [activeContestTitle, setActiveContestTitle] = useState(null);
   const [loadingProblems, setLoadingProblems] = useState(false);
 
-  // Scanner State
+  // Scanner & DiffViewer State
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [activeComparison, setActiveComparison] = useState(null);
+
+  // Admin Portal State
+  const [adminUser, setAdminUser] = useState(null);
+  const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
@@ -95,6 +102,23 @@ export default function App() {
     setCurrentView('problem_workspace');
   };
 
+  // 1-Click Launch DiffViewer Handler from Admin Dashboard
+  const handleLaunchDiffViewerFromAdmin = (codeA, codeB, nameA, nameB) => {
+    setActiveComparison({
+      file1: nameA ? `${nameA}.cpp` : 'Competitor_A.cpp',
+      file2: nameB ? `${nameB}.cpp` : 'Competitor_B.cpp',
+      code1: codeA,
+      code2: codeB,
+      similarity_score: 95.0,
+      confidence_score: 0.92,
+      ast_similarity: 95.0,
+      llm_forensic_score: 88.0,
+      classification: 'Suspicious Collusion',
+      flags: ['Matched via Contest Batch Audit Matrix']
+    });
+    setCurrentView('integrity');
+  };
+
   const handleQuickUpload = async () => {
     if (selectedFiles.length === 0) {
       setError('Please select at least 2 .cpp files or a .zip file.');
@@ -136,319 +160,353 @@ export default function App() {
   });
 
   return (
-    <div className="min-h-screen bg-[#121212] text-slate-100 font-sans">
+    <div className="min-h-screen bg-[#121212] text-slate-100 font-sans flex flex-col justify-between">
       
-      {/* Top Header */}
-      <header className="border-b border-[#282828] bg-[#1a1a1a] px-6 py-2.5 sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-8">
-            <div className="flex items-center space-x-2 font-extrabold text-sm text-indigo-400 cursor-pointer" onClick={() => setCurrentView('problems')}>
-              <span className="text-lg">⚡</span>
-              <span className="text-white tracking-tight">Code<span className="text-indigo-400">Arena</span></span>
-            </div>
-
-            <nav className="flex items-center space-x-6 text-xs font-semibold">
-              <button
-                onClick={() => { setCurrentView('problems'); setSelectedProblemSlug(null); }}
-                className={`transition-colors cursor-pointer ${currentView === 'problems' || currentView === 'problem_workspace' ? 'text-white border-b-2 border-indigo-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
-              >
-                Problems
-              </button>
-              <button
-                onClick={() => { setCurrentView('contests'); setSelectedProblemSlug(null); }}
-                className={`transition-colors cursor-pointer ${currentView === 'contests' ? 'text-white border-b-2 border-indigo-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
-              >
-                Contests
-              </button>
-              <button
-                onClick={() => {
-                  if (!currentUser) {
-                    setShowAuthModal(true);
-                  } else {
-                    setCurrentView('profile');
-                    setSelectedProblemSlug(null);
-                  }
-                }}
-                className={`transition-colors cursor-pointer ${currentView === 'profile' ? 'text-white border-b-2 border-indigo-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
-              >
-                Profile
-              </button>
-              <button
-                onClick={() => { setCurrentView('quick_scan'); setSelectedProblemSlug(null); }}
-                className={`transition-colors cursor-pointer ${currentView === 'quick_scan' ? 'text-white border-b-2 border-indigo-500 pb-1 mt-1' : 'text-slate-400 hover:text-slate-200'}`}
-              >
-                Integrity Scanner
-              </button>
-            </nav>
-          </div>
-
-          <div className="flex items-center space-x-4 text-xs">
-            <div className="flex items-center space-x-1 text-amber-400 font-mono font-bold bg-[#262626] px-2.5 py-1 rounded-full border border-[#333]">
-              <Flame className="w-3.5 h-3.5 fill-amber-400" />
-              <span>0</span>
-            </div>
-
-            {currentUser ? (
-              <button
-                onClick={() => setShowAuthModal(true)}
-                className="flex items-center space-x-2 bg-[#262626] hover:bg-[#333] border border-[#333] px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
-              >
-                <div className="w-5 h-5 rounded-full bg-indigo-600 text-white font-bold text-[10px] flex items-center justify-center">
-                  {currentUser.user_name.charAt(0)}
-                </div>
-                <div className="text-left">
-                  <span className="font-semibold text-slate-200 text-xs block leading-tight">{currentUser.user_name}</span>
-                  <span className="text-[10px] font-mono text-slate-500 block leading-tight">{currentUser.handle}</span>
-                </div>
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowAuthModal(true)}
-                className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-3.5 py-1.5 rounded-xl cursor-pointer transition-colors shadow-sm"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>Sign In</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Main Page Body */}
-      <main className="max-w-6xl mx-auto p-6 md:p-8">
-        
-        {/* VIEW 1: Problems Catalog */}
-        {currentView === 'problems' && (
-          <div className="space-y-6">
+      {/* Global Navigation Header */}
+      <div>
+        <header className="border-b border-[#27272a] bg-[#18181b]/80 backdrop-blur sticky top-0 z-40 px-6 py-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
             
-            {/* Topic Pills */}
-            <div className="flex items-center space-x-2 overflow-x-auto pb-2 scrollbar-none text-xs">
-              {topicsList.map((topic) => (
+            {/* Brand Logo & Main Nav Tabs */}
+            <div className="flex items-center space-x-8">
+              <div 
+                onClick={() => setCurrentView('problems')} 
+                className="flex items-center space-x-2 cursor-pointer select-none"
+              >
+                <div className="p-1.5 bg-gradient-to-tr from-amber-500 to-orange-500 rounded-lg shadow-sm">
+                  <Flame className="w-5 h-5 text-white" />
+                </div>
+                <span className="font-extrabold text-base tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                  CodeArena
+                </span>
+              </div>
+
+              <nav className="flex items-center space-x-2 text-xs font-semibold">
                 <button
-                  key={topic}
-                  onClick={() => setSelectedTopic(topic)}
-                  className={`px-3.5 py-1.5 rounded-full font-medium transition-colors shrink-0 cursor-pointer ${
-                    selectedTopic === topic
-                      ? 'bg-slate-100 text-slate-900 font-bold'
-                      : 'bg-[#222] text-slate-400 hover:bg-[#2a2a2a] hover:text-slate-200 border border-[#333]'
+                  onClick={() => setCurrentView('problems')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    currentView === 'problems' || currentView === 'problem_workspace'
+                      ? 'bg-[#27272a] text-emerald-400'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#27272a]/50'
                   }`}
                 >
-                  {topic}
+                  Problems
                 </button>
-              ))}
+
+                <button
+                  onClick={() => setCurrentView('contests')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    currentView === 'contests'
+                      ? 'bg-[#27272a] text-emerald-400'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#27272a]/50'
+                  }`}
+                >
+                  Contests
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (!currentUser) {
+                      setShowAuthModal(true);
+                      return;
+                    }
+                    setCurrentView('profile');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    currentView === 'profile'
+                      ? 'bg-[#27272a] text-emerald-400'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#27272a]/50'
+                  }`}
+                >
+                  Profile
+                </button>
+
+                <button
+                  onClick={() => setCurrentView('integrity')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    currentView === 'integrity'
+                      ? 'bg-[#27272a] text-emerald-400'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#27272a]/50'
+                  }`}
+                >
+                  Integrity Scanner
+                </button>
+              </nav>
             </div>
 
-            {/* Search Bar */}
-            <div className="relative max-w-sm">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                placeholder="Search questions..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-[#1e1e1e] border border-[#2e2e2e] rounded-xl pl-9 pr-4 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
+            {/* Right Header Controls (Auth & Admin Radar) */}
+            <div className="flex items-center space-x-3">
+              
+              {/* Admin Radar Launch Button */}
+              <button
+                onClick={() => {
+                  if (adminUser) {
+                    setCurrentView('admin');
+                  } else {
+                    setShowAdminLoginModal(true);
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center space-x-1.5 transition-all cursor-pointer ${
+                  currentView === 'admin'
+                    ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30'
+                    : 'bg-[#18181b] text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10'
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>Admin Radar</span>
+              </button>
 
-            {/* Problems Table */}
-            <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-2xl overflow-hidden shadow-xl">
-              {loadingProblems ? (
-                <div className="p-12 text-center text-xs text-slate-500">
-                  Loading problem library...
-                </div>
-              ) : filteredProblems.length === 0 ? (
-                <div className="p-12 text-center text-xs text-slate-500">
-                  No problems found.
+              {/* User Account / Guest Trigger */}
+              {currentUser ? (
+                <div className="flex items-center space-x-2 bg-[#18181b] border border-[#27272a] px-3 py-1.5 rounded-xl">
+                  <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xs font-bold text-emerald-400">
+                    {currentUser.display_name?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                  <div className="text-left">
+                    <p className="text-[11px] font-bold text-slate-200 leading-tight">{currentUser.display_name}</p>
+                    <p className="text-[9px] text-slate-500 font-mono">@{currentUser.username}</p>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="ml-2 text-[10px] text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
+                  >
+                    Logout
+                  </button>
                 </div>
               ) : (
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-[#2a2a2a] bg-[#171717] text-slate-400 font-mono text-[11px]">
-                      <th className="py-3 px-4 w-12 text-center">Status</th>
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition-colors shadow-sm cursor-pointer"
+                >
+                  Sign In
+                </button>
+              )}
+            </div>
+
+          </div>
+        </header>
+
+        {/* Dynamic Main Views */}
+        <main className="max-w-7xl mx-auto px-4 py-6">
+          
+          {/* 1. ADMIN DASHBOARD VIEW */}
+          {currentView === 'admin' && adminUser && (
+            <AdminDashboard
+              adminUser={adminUser}
+              onLogout={() => {
+                setAdminUser(null);
+                setCurrentView('problems');
+              }}
+              onLaunchDiffViewer={handleLaunchDiffViewerFromAdmin}
+            />
+          )}
+
+          {/* 2. PROBLEMS CATALOG VIEW */}
+          {currentView === 'problems' && (
+            <div className="space-y-6">
+              
+              {/* Problem Filter & Search Bar */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex flex-wrap gap-1.5">
+                  {topicsList.map((tag) => (
+                    <button
+                      key={tag}
+                      onClick={() => setSelectedTopic(tag)}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                        selectedTopic === tag
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-[#1e1e1e] text-slate-400 hover:text-slate-200 border border-[#2a2a2a]'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="relative w-full md:w-64">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-slate-500" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search problems..."
+                    className="w-full bg-[#1e1e1e] border border-[#2a2a2a] rounded-xl pl-8 pr-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Problems Table */}
+              <div className="bg-[#18181b] border border-[#27272a] rounded-2xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#121214] border-b border-[#27272a] text-slate-400 uppercase tracking-wider font-semibold text-[10px]">
+                    <tr>
+                      <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Title</th>
-                      <th className="py-3 px-4 text-center">Acceptance</th>
-                      <th className="py-3 px-4 text-center">Difficulty</th>
-                      <th className="py-3 px-4 text-right">Action</th>
+                      <th className="py-3 px-4">Difficulty</th>
+                      <th className="py-3 px-4">Topics</th>
+                      <th className="py-3 px-4 text-right">Submissions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#2a2a2a]">
-                    {filteredProblems.map((prob, idx) => (
+                  <tbody className="divide-y divide-[#27272a]">
+                    {filteredProblems.map((p) => (
                       <tr
-                        key={prob.problem_id}
-                        onClick={() => handleProblemClick(prob.slug)}
-                        className="hover:bg-[#252525] transition-colors cursor-pointer group"
+                        key={p.problem_id}
+                        onClick={() => handleProblemClick(p.slug)}
+                        className="hover:bg-[#222226] cursor-pointer transition-colors"
                       >
-                        <td className="py-3.5 px-4 text-center">
-                          {currentUser && prob.is_solved ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" />
+                        <td className="py-3 px-4">
+                          {p.solved ? (
+                            <span className="text-emerald-400 font-bold">Solved</span>
                           ) : (
-                            <span className="text-slate-700 font-mono">-</span>
+                            <span className="text-slate-600">—</span>
                           )}
                         </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="font-semibold text-slate-200 group-hover:text-indigo-400 transition-colors">
-                            {idx + 1}. {prob.title}
+                        <td className="py-3 px-4 font-semibold text-slate-100 hover:text-emerald-400">
+                          {p.title}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                            p.difficulty === 'Easy'
+                              ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+                              : p.difficulty === 'Medium'
+                              ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
+                              : 'text-red-400 bg-red-500/10 border-red-500/30'
+                          }`}>
+                            {p.difficulty}
                           </span>
                         </td>
-
-                        <td className="py-3.5 px-4 text-center font-mono text-slate-400">
-                          {prob.acceptance_rate}%
+                        <td className="py-3 px-4">
+                          <div className="flex flex-wrap gap-1">
+                            {p.topic_tags?.map((t, idx) => (
+                              <span key={idx} className="px-1.5 py-0.5 rounded bg-[#121214] text-[10px] text-slate-400 border border-[#27272a]">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
                         </td>
-
-                        <td className="py-3.5 px-4 text-center font-semibold">
-                          <span className={
-                            prob.difficulty === 'Easy' ? 'text-emerald-400' : prob.difficulty === 'Hard' ? 'text-red-400' : 'text-amber-400'
-                          }>
-                            {prob.difficulty}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-4 text-right">
-                          <button className="inline-flex items-center space-x-1 text-slate-400 group-hover:text-indigo-400 transition-colors">
-                            <span>Solve</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </button>
+                        <td className="py-3 px-4 text-right font-mono text-slate-400">
+                          {p.submission_count || 0}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              )}
-            </div>
-
-          </div>
-        )}
-
-        {/* VIEW 2: Problem Workspace */}
-        {currentView === 'problem_workspace' && selectedProblemSlug && (
-          <ProblemWorkspace
-            problemSlug={selectedProblemSlug}
-            contestId={activeContestId}
-            contestTitle={activeContestTitle}
-            currentUser={currentUser}
-            onRequestAuth={() => setShowAuthModal(true)}
-            onBack={() => {
-              if (activeContestId) setCurrentView('contests');
-              else setCurrentView('problems');
-              setSelectedProblemSlug(null);
-              fetchProblems();
-            }}
-          />
-        )}
-
-        {/* VIEW 3: Contests Hub */}
-        {currentView === 'contests' && (
-          <ContestHub
-            currentUser={currentUser}
-            onRequestAuth={() => setShowAuthModal(true)}
-            onSelectContestProblem={(slug, cid, title) => {
-              if (!currentUser) {
-                setShowAuthModal(true);
-                return;
-              }
-              setSelectedProblemSlug(slug);
-              setActiveContestId(cid);
-              setActiveContestTitle(title);
-              setCurrentView('problem_workspace');
-            }}
-          />
-        )}
-
-        {/* VIEW 4: Profile Dashboard */}
-        {currentView === 'profile' && (
-          <ProfileDashboard
-            currentUser={currentUser}
-            onRequestAuth={() => setShowAuthModal(true)}
-            onSelectProblem={(slug) => {
-              setSelectedProblemSlug(slug);
-              setCurrentView('problem_workspace');
-            }}
-          />
-        )}
-
-        {/* VIEW 5: Integrity Scanner */}
-        {currentView === 'quick_scan' && (
-          <div className="space-y-6">
-            <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-2xl p-8 space-y-4">
-              <div className="border-2 border-dashed border-[#3a3a3a] hover:border-indigo-500/60 transition-colors rounded-xl p-8 text-center flex flex-col items-center justify-center space-y-3 cursor-pointer relative bg-[#141414]">
-                <input 
-                  type="file" 
-                  multiple 
-                  accept=".cpp,.cc,.cxx,.zip"
-                  onChange={(e) => { setSelectedFiles(Array.from(e.target.files)); setError(''); }}
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                />
-                <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl">
-                  <Upload className="w-6 h-6" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-200">
-                    {selectedFiles.length > 0 ? `${selectedFiles.length} files selected` : "Upload C++ files or .zip for Plagiarism & AI Detection"}
-                  </p>
-                </div>
               </div>
 
-              {error && (
-                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-xs">
-                  {error}
-                </div>
-              )}
-
-              <button
-                onClick={handleQuickUpload}
-                disabled={analyzing || selectedFiles.length === 0}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-all flex items-center justify-center space-x-2 text-xs cursor-pointer"
-              >
-                {analyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Run Forensic Scan</span>}
-              </button>
             </div>
+          )}
 
-            {/* Results Table */}
-            {result && (
-              <div className="bg-[#1e1e1e] border border-[#2a2a2a] rounded-2xl overflow-hidden p-6 space-y-4">
-                <h3 className="text-xs font-bold text-slate-200 uppercase">Analysis Results ({result.total_files_analyzed} Files)</h3>
-                <div className="divide-y divide-[#2a2a2a]">
-                  {result.comparisons.map((comp, idx) => (
-                    <div key={idx} className="py-3 flex items-center justify-between text-xs">
-                      <span>{comp.file_a} & {comp.file_b}</span>
-                      <div className="flex items-center space-x-3">
-                        <span className="font-mono text-indigo-400 font-bold">{comp.similarity_score}% Match</span>
-                        <button onClick={() => setActiveComparison(comp)} className="text-slate-400 hover:text-white underline cursor-pointer">Diff</button>
-                      </div>
+          {/* 3. PROBLEM WORKSPACE VIEW */}
+          {currentView === 'problem_workspace' && (
+            <ProblemWorkspace
+              problemSlug={selectedProblemSlug}
+              contestId={activeContestId}
+              contestTitle={activeContestTitle}
+              currentUser={currentUser}
+              onBack={() => setCurrentView(activeContestId ? 'contests' : 'problems')}
+            />
+          )}
+
+          {/* 4. CONTEST HUB VIEW */}
+          {currentView === 'contests' && (
+            <ContestHub
+              currentUser={currentUser}
+              onSelectProblem={(slug, contestId, contestTitle) => {
+                setSelectedProblemSlug(slug);
+                setActiveContestId(contestId);
+                setActiveContestTitle(contestTitle);
+                setCurrentView('problem_workspace');
+              }}
+            />
+          )}
+
+          {/* 5. PROFILE DASHBOARD VIEW */}
+          {currentView === 'profile' && currentUser && (
+            <ProfileDashboard
+              currentUser={currentUser}
+              onSelectProblem={(slug) => handleProblemClick(slug)}
+            />
+          )}
+
+          {/* 6. INTEGRITY SCANNER & DIFFVIEWER VIEW */}
+          {currentView === 'integrity' && (
+            <div className="space-y-6">
+              {activeComparison ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => setActiveComparison(null)}
+                      className="text-xs text-slate-400 hover:text-white flex items-center space-x-1.5 cursor-pointer"
+                    >
+                      <span>← Back to Scanner Overview</span>
+                    </button>
+                  </div>
+                  <DiffViewer
+                    initialCodeA={activeComparison.code1}
+                    initialCodeB={activeComparison.code2}
+                    labelA={activeComparison.file1}
+                    labelB={activeComparison.file2}
+                  />
+                </div>
+              ) : (
+                /* Standalone Multi-File Quick Upload Box */
+                <div className="bg-[#18181b] border border-[#27272a] rounded-2xl p-8 max-w-xl mx-auto text-center space-y-4">
+                  <div className="p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl text-indigo-400 w-12 h-12 mx-auto flex items-center justify-center">
+                    <Upload className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-100">Upload C++ Files for Instant AST Audit</h3>
+                    <p className="text-xs text-slate-400 mt-1">Upload multiple C++ source files or a .zip archive</p>
+                  </div>
+
+                  <input
+                    type="file"
+                    multiple
+                    accept=".cpp,.hpp,.cc,.h,.zip"
+                    onChange={(e) => setSelectedFiles(Array.from(e.target.files))}
+                    className="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 file:cursor-pointer"
+                  />
+
+                  {error && (
+                    <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs flex items-center space-x-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{error}</span>
                     </div>
-                  ))}
+                  )}
+
+                  <button
+                    onClick={handleQuickUpload}
+                    disabled={analyzing || selectedFiles.length === 0}
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    {analyzing ? 'Tokenizing ASTs & Running Scans...' : 'Scan Submissions'}
+                  </button>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          )}
 
-      </main>
+        </main>
+      </div>
 
-      {/* Auth Modal */}
-      {showAuthModal && (
-        <AuthModal
-          currentUser={currentUser}
-          onLoginSuccess={(user) => {
-            setCurrentUser(user);
-            setShowAuthModal(false);
-          }}
-          onLogout={handleLogout}
-          onClose={() => setShowAuthModal(false)}
-        />
-      )}
+      {/* Modals */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          setShowAuthModal(false);
+        }}
+      />
 
-      {/* Diff Viewer Modal */}
-      {activeComparison && result && (
-        <DiffViewer
-          comparison={activeComparison}
-          filesContent={result.files_content}
-          boilerplateSpans={result.file_boilerplate_spans}
-          onClose={() => setActiveComparison(null)}
-        />
-      )}
-
+      <AdminLoginModal
+        isOpen={showAdminLoginModal}
+        onClose={() => setShowAdminLoginModal(false)}
+        onLoginSuccess={(adminData) => {
+          setAdminUser(adminData);
+          setCurrentView('admin');
+        }}
+      />
     </div>
   );
 }
